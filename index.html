@@ -17,7 +17,7 @@
         
         /* 专属日文：采用现代无衬线黑体（Gothic），与现代中文黑体风格完美契合 */
         .font-japanese {
-            font-family: 'Noto Sans JP', "Hiragino Kaku Gothic ProN", "ヒラギノ角ゴ ProN W3", "Meiryo", "メイリオ", sans-serif;
+            font-family: 'Noto Sans JP', "Hiragino Sans", "Hiragino Kaku Gothic ProN", "ヒラギノ角ゴ ProN W3", "Meiryo", "メイリオ", sans-serif;
         }
 
         /* 2. 动态物理缩放核心控制变量 (卡片宽高与字体比例关联) */
@@ -160,7 +160,7 @@
                         <label class="block text-xs font-semibold text-stone-500">单词 (Word) <span class="text-red-500">*</span></label>
                         <div class="relative w-full flex items-center">
                             <!-- 预留 pr-20 以免遮挡文字，完美整合 AI 助手 -->
-                            <input type="text" id="input-word" required 
+                            <input type="text" id="input-word" required lang="ja"
                                 placeholder="例：日本語 或 美[おい]しい" 
                                 class="font-japanese w-full pl-4 pr-20 py-3 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-700/20 focus:border-emerald-700 transition duration-200 text-stone-800 placeholder-stone-400">
                             <!-- 匹配假名按钮 -->
@@ -175,7 +175,7 @@
                     <!-- 假名输入 -->
                     <div class="space-y-1.5">
                         <label class="block text-xs font-semibold text-stone-500">假名 (Kana) <span class="text-stone-400 font-normal">(AI可自动填写，也可留空)</span></label>
-                        <input type="text" id="input-kana" 
+                        <input type="text" id="input-kana" lang="ja"
                             placeholder="例：にほんご" 
                             class="font-japanese w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-700/20 focus:border-emerald-700 transition duration-200 text-stone-800 placeholder-stone-400">
                     </div>
@@ -194,7 +194,7 @@
                 <!-- 例句输入 -->
                 <div class="space-y-1.5">
                     <label class="block text-xs font-semibold text-stone-500">例句 (Example Sentence)</label>
-                    <textarea id="input-example" rows="2" 
+                    <textarea id="input-example" rows="2" lang="ja"
                         placeholder="例：日本語を一生懸命勉強しています。(正在拼命地学日语。)" 
                         class="w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-700/20 focus:border-emerald-700 transition duration-200 text-stone-800 placeholder-stone-400 resize-none"></textarea>
                 </div>
@@ -478,7 +478,7 @@
                     <div class="space-y-1 flex flex-col justify-between">
                         <label class="block text-[11px] font-bold text-stone-500">单词 (Word)</label>
                         <div class="relative w-full flex items-center">
-                            <input type="text" id="edit-word" required 
+                            <input type="text" id="edit-word" required lang="ja"
                                 class="font-japanese w-full pl-3 pr-20 py-2.5 bg-stone-50 border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-sm">
                             <!-- 编辑面板中的 AI 快捷填充 -->
                             <button type="button" id="edit-ai-parse-btn" onclick="autoLookupWord(true)" class="absolute right-1.5 py-1 px-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-md text-[11px] font-semibold hover:from-blue-700 hover:to-indigo-700 transition-all duration-200 flex items-center shadow-sm active:scale-95" title="使用AI重新校准读音">
@@ -491,7 +491,7 @@
                     </div>
                     <div class="space-y-1">
                         <label class="block text-[11px] font-bold text-stone-500">假名 (Kana)</label>
-                        <input type="text" id="edit-kana" 
+                        <input type="text" id="edit-kana" lang="ja"
                             class="font-japanese w-full px-3 py-2.5 bg-stone-50 border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-sm">
                     </div>
                 </div>
@@ -502,7 +502,7 @@
                 </div>
                 <div class="space-y-1">
                     <label class="block text-[11px] font-bold text-stone-500">例句 (Example Sentence)</label>
-                    <textarea id="edit-example" rows="2" 
+                    <textarea id="edit-example" rows="2" lang="ja"
                         class="w-full px-3 py-2 bg-stone-50 border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-sm resize-none"></textarea>
                 </div>
                 
@@ -689,7 +689,7 @@
                 return `
                     <div class="text-left bg-white/70 rounded-xl border border-stone-200/30 w-full" style="padding: calc(0.75rem * var(--card-scale, 1.0));">
                         <span class="uppercase font-bold tracking-wider text-emerald-800/50 block" style="font-size: var(--fs-tiny, 0.625rem); margin-bottom: calc(0.25rem * var(--card-scale, 1.0));">例句</span>
-                        <div class="font-japanese text-stone-800 font-medium leading-relaxed" style="font-size: calc(0.84rem * var(--card-scale, 1.0));">${jpSent}</div>
+                        <div class="font-japanese text-stone-800 font-medium leading-relaxed" lang="ja" style="font-size: calc(0.84rem * var(--card-scale, 1.0));">${jpSent}</div>
                         ${cnTrans ? `<div class="text-stone-500 leading-normal" style="font-size: calc(0.75rem * var(--card-scale, 1.0));">${cnTrans}</div>` : ''}
                     </div>
                 `;
@@ -698,7 +698,7 @@
             return `
                 <div class="text-left bg-white/70 rounded-xl border border-stone-200/30 w-full" style="padding: calc(0.75rem * var(--card-scale, 1.0));">
                     <span class="uppercase font-bold tracking-wider text-emerald-800/50 block" style="font-size: var(--fs-tiny, 0.625rem); margin-bottom: calc(0.25rem * var(--card-scale, 1.0));">例句</span>
-                    <div class="font-japanese text-stone-800 font-medium leading-relaxed" style="font-size: calc(0.84rem * var(--card-scale, 1.0));">${exampleText}</div>
+                    <div class="font-japanese text-stone-800 font-medium leading-relaxed" lang="ja" style="font-size: calc(0.84rem * var(--card-scale, 1.0));">${exampleText}</div>
                 </div>
             `;
         }
@@ -993,7 +993,7 @@
                                     </div>
                                     
                                     <div class="my-auto text-center w-full overflow-hidden">
-                                        <h3 class="font-japanese font-medium tracking-wide text-stone-800 leading-normal truncate" style="font-size: var(--fs-title);">${cleanWordFront}</h3>
+                                        <h3 class="font-japanese font-medium tracking-wide text-stone-800 leading-normal truncate" lang="ja" style="font-size: var(--fs-title);">${cleanWordFront}</h3>
                                     </div>
                                     
                                     <div class="text-center shrink-0" style="margin-top: var(--spacing-gap);">
@@ -1017,7 +1017,7 @@
                                             <!-- 利用 margin: auto 0 让内容少时自动居中，内容多时靠顶对齐并可向下滚动，永不遮挡 -->
                                             <div class="w-full my-auto flex flex-col" style="gap: var(--spacing-gap);">
                                                 <div class="text-center">
-                                                    <h3 class="font-japanese font-medium text-stone-900 leading-normal inline-block" style="font-size: var(--fs-sub);">${rubyBack}</h3>
+                                                    <h3 class="font-japanese font-medium text-stone-900 leading-normal inline-block" lang="ja" style="font-size: var(--fs-sub);">${rubyBack}</h3>
                                                 </div>
                                                 <div class="text-center">
                                                     <p class="text-stone-700 bg-stone-200/40 rounded-lg inline-block max-w-full font-semibold" style="font-size: var(--fs-text); padding: calc(0.375rem * var(--card-scale, 1.0)) calc(0.75rem * var(--card-scale, 1.0));">${item.meaning}</p>
@@ -1043,7 +1043,7 @@
                             <div class="px-5 py-3.5 flex justify-between items-center bg-white hover:bg-stone-50/50">
                                 <div class="flex items-center space-x-3">
                                     <span class="w-1.5 h-1.5 bg-emerald-800 rounded-full"></span>
-                                    <span class="font-japanese text-base font-semibold text-stone-800 tracking-wide">${cleanWordFront}</span>
+                                    <span class="font-japanese text-base font-semibold text-stone-800 tracking-wide" lang="ja">${cleanWordFront}</span>
                                 </div>
                                 <div class="flex items-center space-x-2.5">
                                     ${editButtonHtml}
@@ -1060,7 +1060,7 @@
                                 <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
                                     <div class="flex items-center space-x-2">
                                         <span class="text-xs font-bold text-stone-400 uppercase tracking-wider shrink-0">假名读音:</span>
-                                        <span class="font-japanese font-medium text-stone-900 leading-normal inline-block">${rubyBack}</span>
+                                        <span class="font-japanese font-medium text-stone-900 leading-normal inline-block" lang="ja">${rubyBack}</span>
                                     </div>
                                     <div class="flex items-center space-x-2">
                                         <span class="text-xs font-bold text-stone-400 uppercase tracking-wider shrink-0">中文释义:</span>
@@ -1425,8 +1425,8 @@
                 return `
                     <div onclick="fillFromDictionary('${item.word}', '${item.kana}', '${item.meaning}')" class="p-3 bg-stone-50 hover:bg-amber-500/5 border border-stone-200/80 hover:border-amber-500/30 rounded-xl cursor-pointer transition text-left group">
                         <div class="flex justify-between items-start">
-                            <span class="font-japanese text-sm font-semibold text-stone-800 group-hover:text-amber-900">${item.word}</span>
-                            <span class="font-japanese text-[11px] text-stone-400">${item.kana}</span>
+                            <span class="font-japanese text-sm font-semibold text-stone-800 group-hover:text-amber-900" lang="ja">${item.word}</span>
+                            <span class="font-japanese text-[11px] text-stone-400" lang="ja">${item.kana}</span>
                         </div>
                         <p class="text-xs text-stone-500 mt-1 truncate">${item.meaning}</p>
                     </div>
@@ -1655,7 +1655,10 @@
             }
         }
 
-        // 15. 生词主表单提交
+
+        // ==========================================
+        // 🚨 查重与提交：添加生词主表单提交
+        // ==========================================
         document.getElementById('vocab-form').addEventListener('submit', function(e) {
             e.preventDefault(); // 阻止浏览器默认的刷新动作
             
@@ -1663,19 +1666,36 @@
             const kanaInput = document.getElementById('input-kana');
             const meaningInput = document.getElementById('input-meaning');
             const exampleInput = document.getElementById('input-example');
+            
+            const wordVal = wordInput.value.trim();
+
+            if (!notebooks[activeNotebook]) {
+                notebooks[activeNotebook] = [];
+            }
+
+            // --- 智能防重复检查逻辑 ---
+            // 提取纯净的单词实体（自动剔除 AI 匹配生成的括号假名），实现精准查重
+            const getCleanWord = (w) => w.replace(/([^\s\[\]]+)\[([^\]]+)\]/g, '$1');
+            const cleanInputWord = getCleanWord(wordVal);
+            
+            // 遍历当前单词本，寻找是否有重复
+            const isDuplicate = notebooks[activeNotebook].some(card => getCleanWord(card.word) === cleanInputWord);
+            
+            if (isDuplicate) {
+                showToast(`⚠️ “${cleanInputWord}” 已存在于本册中，请勿重复添加！`);
+                wordInput.select(); // 自动选中重复的单词方便修改
+                return; // 立即终止添加流程
+            }
+            // -----------------------------
 
             const newVocab = {
                 id: Date.now().toString(),
-                word: wordInput.value.trim(),
+                word: wordVal,
                 kana: kanaInput.value.trim(),
                 meaning: meaningInput.value.trim(),
                 example: exampleInput.value.trim(),
                 mastered: false
             };
-
-            if (!notebooks[activeNotebook]) {
-                notebooks[activeNotebook] = [];
-            }
 
             notebooks[activeNotebook].unshift(newVocab);
             saveData();
@@ -1696,7 +1716,7 @@
         // 实时搜索过滤功能
         document.getElementById('search-input').addEventListener('input', renderCards);
 
-        // 16. 一键翻面
+        // 一键翻面
         let allFlipped = false;
         document.getElementById('toggle-all-btn').addEventListener('click', () => {
             if (layoutMode !== "grid") {
@@ -1717,7 +1737,7 @@
             btnSpan.innerText = allFlipped ? "还原正面" : "全卡翻面";
         });
 
-        // 16.5 一键随机打乱当前单词本的卡片显示顺序
+        // 一键随机打乱当前单词本的卡片显示顺序
         window.shuffleCards = function() {
             const currentList = notebooks[activeNotebook] || [];
             if (currentList.length <= 1) {
