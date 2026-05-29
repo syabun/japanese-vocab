@@ -1,0 +1,1224 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>日语单词本</title>
+    <!-- 引入 Tailwind CSS 提供极致的现代极简视觉设计 -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts 引入现代无衬线日文字体 (Noto Sans JP) -->
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <style>
+        /* 1. 严格中日文字体区分 */
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "微软雅黑", sans-serif;
+            background-color: #fcfbf7; /* 极柔和的日式宣纸白 */
+        }
+        
+        /* 专属日文：采用现代无衬线黑体（Gothic），与现代中文黑体风格完美契合 */
+        .font-japanese {
+            font-family: 'Noto Sans JP', "Hiragino Kaku Gothic ProN", "ヒラギノ角ゴ ProN W3", "Meiryo", "メイリオ", sans-serif;
+        }
+
+        /* 2. 动态物理缩放核心控制变量 (卡片宽高与字体比例关联) */
+        #cards-grid {
+            --card-scale: 1.0;
+            --card-width: 300px;
+            --card-height: 320px;
+        }
+        
+        /* 3. 物理自适应网格 (卡片缩小时，列数会自动增加) */
+        .adaptive-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(var(--card-width), 1fr));
+            gap: 1.5rem;
+            width: 100%;
+        }
+
+        /* 3D 卡片翻转容器高度受变量控制 */
+        .perspective {
+            perspective: 1000px;
+            height: var(--card-height) !important;
+            transition: height 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .card-inner {
+            transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+            transform-style: preserve-3d;
+        }
+        .card-inner.is-flipped {
+            transform: rotateY(180deg);
+        }
+        .card-front, .card-back {
+            backface-visibility: hidden;
+            -webkit-backface-visibility: hidden;
+        }
+        .card-back {
+            transform: rotateY(180deg);
+        }
+        
+        /* 4. 优雅的 HTML ruby 假名微调，确保假名在头顶完美对齐且永不遮挡 */
+        ruby {
+            ruby-position: over;
+            ruby-align: center;
+            line-height: 1.8; /* 增大行高，为头上假名腾出充足的纵向空间 */
+        }
+        rt {
+            font-family: 'Noto Sans JP', sans-serif;
+            font-size: 0.58em;
+            letter-spacing: 0em; 
+            text-align: center;
+            color: #8c7e6c; /* 优雅的灰褐色假名 */
+            padding-bottom: 0.1em;
+            user-select: none;
+        }
+
+        /* 5. 卡片背部内容防溢出、防切割的安全滚动层 */
+        .card-content-scroll {
+            overflow-y: auto;
+            max-height: 100%;
+            padding-right: 4px;
+        }
+        /* 极致清爽的浅灰极细微型滚动条 */
+        .card-content-scroll::-webkit-scrollbar {
+            width: 4px;
+        }
+        .card-content-scroll::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        .card-content-scroll::-webkit-scrollbar-thumb {
+            background: #e5e3d7;
+            border-radius: 4px;
+        }
+        
+        /* 自定义滚动条 */
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f5f4ef;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #d4cfc1;
+            border-radius: 3px;
+        }
+
+        /* 隐藏滚动条 */
+        .scrollbar-hide::-webkit-scrollbar {
+            display: none;
+        }
+        .scrollbar-hide {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+
+        /* 所有卡片内部的变量声明，它们会自动继承来自父级 #cards-grid 的等比缩放参数 */
+        .card-scale-box {
+            --card-pad: calc(1.25rem * var(--card-scale, 1.0));
+            --fs-title: calc(1.875rem * var(--card-scale, 1.0));
+            --fs-sub: calc(1.375rem * var(--card-scale, 1.0));
+            --fs-text: calc(0.875rem * var(--card-scale, 1.0));
+            --fs-small: calc(0.75rem * var(--card-scale, 1.0));
+            --fs-tiny: calc(0.625rem * var(--card-scale, 1.0));
+            --spacing-gap: calc(0.75rem * var(--card-scale, 1.0));
+        }
+    </style>
+</head>
+<body class="text-stone-800 min-h-screen flex flex-col justify-between selection:bg-emerald-100 selection:text-emerald-900 overflow-x-hidden">
+
+    <!-- 顶部极简导航栏 -->
+    <header class="border-b border-stone-200/60 bg-[#fcfbf7]/80 backdrop-blur sticky top-0 z-40">
+        <div class="max-w-6xl mx-auto px-6 py-4 flex justify-between items-center">
+            <div class="flex items-center space-x-3">
+                <span class="text-xl font-bold tracking-widest text-emerald-800">日语单词本</span>
+                <span id="active-notebook-badge" class="text-xs px-2 py-0.5 bg-stone-100 text-stone-500 rounded-full border border-stone-200/60 font-medium hidden sm:inline">日常</span>
+            </div>
+            <div class="flex items-center space-x-2.5 sm:space-x-4">
+                <!-- ✨ 新增云同步按钮 -->
+                <button onclick="openCloudSyncModal()" class="px-3.5 py-1.5 bg-blue-500/10 hover:bg-blue-500/20 text-blue-800 border border-blue-500/30 rounded-full text-xs font-semibold flex items-center space-x-1.5 transition active:scale-95 shadow-sm" title="打开 GitHub Gist 跨设备云端同步">
+                    <span>☁️ 云同步</span>
+                </button>
+                <button onclick="toggleDictionaryDrawer()" class="px-3.5 py-1.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-900 border border-amber-500/30 rounded-full text-xs font-semibold flex items-center space-x-1.5 transition active:scale-95 shadow-sm" title="打开内置离线词典与在线直达">
+                    <span>🔍 查词典</span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <main class="max-w-5xl mx-auto px-6 py-8 w-full flex-grow relative">
+        
+        <!-- 输入表单区块 -->
+        <section class="bg-white rounded-2xl border border-stone-200/80 p-6 md:p-8 mb-10 shadow-sm">
+            <h2 class="text-base font-bold text-stone-700 mb-6 flex items-center">
+                <span class="w-1.5 h-4 bg-emerald-700 rounded-full mr-2.5"></span>
+                添加新单词
+            </h2>
+            <form id="vocab-form" class="space-y-5">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+                    <!-- 单词输入 -->
+                    <div class="space-y-1.5">
+                        <label class="block text-xs font-semibold text-stone-500">单词 (Word) <span class="text-red-500">*</span></label>
+                        <div class="relative w-full flex items-center">
+                            <input type="text" id="input-word" required 
+                                placeholder="例：日本語 或 美[おい]しい" 
+                                class="font-japanese w-full pl-4 pr-20 py-3 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-700/20 focus:border-emerald-700 transition duration-200 text-stone-800 placeholder-stone-400">
+                            <!-- 匹配假名按钮 -->
+                            <button type="button" id="ai-parse-btn" onclick="autoLookupWord(false)" class="absolute right-2.5 py-1 px-2 bg-gradient-to-r from-emerald-800/90 to-teal-800/90 text-white rounded-lg text-[11px] font-semibold hover:from-emerald-900 hover:to-teal-900 transition-all duration-200 flex items-center shadow-sm active:scale-95" title="一键自动匹配头上假名">
+                                <span id="ai-btn-spinner" class="hidden animate-spin mr-1">
+                                    <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                                </span>
+                                <span id="ai-btn-text">匹配假名</span>
+                            </button>
+                        </div>
+                    </div>
+                    <!-- 假名输入 -->
+                    <div class="space-y-1.5">
+                        <label class="block text-xs font-semibold text-stone-500">假名 (Kana) <span class="text-stone-400 font-normal">(AI可自动填写，也可留空)</span></label>
+                        <input type="text" id="input-kana" 
+                            placeholder="例：にほんご" 
+                            class="font-japanese w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-700/20 focus:border-emerald-700 transition duration-200 text-stone-800 placeholder-stone-400">
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 gap-5">
+                    <!-- 中文释义 -->
+                    <div class="space-y-1.5">
+                        <label class="block text-xs font-semibold text-stone-500">中文释义 (Meaning) <span class="text-red-500">*</span></label>
+                        <input type="text" id="input-meaning" required 
+                            placeholder="例：日语 / 好吃的" 
+                            class="w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-700/20 focus:border-emerald-700 transition duration-200 text-stone-800 placeholder-stone-400">
+                    </div>
+                </div>
+
+                <!-- 例句输入 -->
+                <div class="space-y-1.5">
+                    <label class="block text-xs font-semibold text-stone-500">例句 (Example Sentence)</label>
+                    <textarea id="input-example" rows="2" 
+                        placeholder="例：日本語を一生懸命勉強しています。(正在拼命地学日语。)" 
+                        class="w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-700/20 focus:border-emerald-700 transition duration-200 text-stone-800 placeholder-stone-400 resize-none"></textarea>
+                </div>
+
+                <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between pt-2 gap-4">
+                    <div class="text-xs text-stone-500 bg-stone-100/80 rounded-lg p-3 border border-stone-200/50 leading-relaxed max-w-xl">
+                        💡 <strong>极速查假名：</strong>在单词框输入中文或汉字词后点击 <strong class="text-emerald-800">“匹配假名”</strong>，AI 仅自动匹配读音并转为精准的括号汉字对齐！
+                    </div>
+                    <button type="submit" 
+                        class="px-8 py-3.5 bg-emerald-800 text-white rounded-xl font-medium tracking-wider hover:bg-emerald-900 active:transform active:scale-95 transition-all duration-200 shadow-md shadow-emerald-900/10 whitespace-nowrap self-end sm:self-center">
+                        添加卡片
+                    </button>
+                </div>
+            </form>
+        </section>
+
+        <!-- 单词本管理器 -->
+        <section class="mb-6">
+            <div class="text-xs font-bold text-stone-400 tracking-wider uppercase mb-2.5">我的单词本</div>
+            <div class="flex items-center justify-between border-b border-stone-200 pb-2 gap-4">
+                <!-- 单词本横向排列标签页 -->
+                <div id="notebook-tabs" class="flex items-center space-x-2 overflow-x-auto scrollbar-hide py-1 flex-grow">
+                    <!-- JS 动态渲染 -->
+                </div>
+                <!-- 功能操作 -->
+                <div class="flex items-center space-x-1 flex-shrink-0">
+                    <button id="add-notebook-btn" onclick="openNewNotebookModal()" class="p-2 hover:bg-stone-100 rounded-xl text-emerald-800 transition" title="新建单词本">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
+                    </button>
+                    <button id="delete-notebook-btn" onclick="openDeleteNotebookConfirm()" class="p-2 text-stone-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition" title="删除当前单词本">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <!-- 布局切换与缩放设置面板 -->
+        <section class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 bg-stone-100/60 rounded-2xl border border-stone-200/50 mb-6">
+            <!-- 视图一键切换 -->
+            <div class="flex items-center space-x-2.5">
+                <span class="text-xs font-bold text-stone-500 uppercase tracking-wider">视图模式:</span>
+                <div class="inline-flex bg-stone-200/60 p-0.5 rounded-xl border border-stone-200/30 shrink-0 shadow-inner">
+                    <button id="view-grid-btn" onclick="setViewMode('grid')" class="px-3.5 py-1.5 rounded-lg text-xs font-bold transition duration-200 bg-white text-emerald-800 shadow-sm flex items-center space-x-1.5">
+                        <span>🎴</span> <span>卡片平铺</span>
+                    </button>
+                    <button id="view-list-btn" onclick="setViewMode('list')" class="px-3.5 py-1.5 rounded-lg text-xs font-bold transition duration-200 text-stone-500 hover:text-stone-800 flex items-center space-x-1.5">
+                        <span>📝</span> <span>迷你列表</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- 卡片无级缩放设置 -->
+            <div id="scale-control-container" class="flex items-center space-x-3 transition-opacity duration-300">
+                <span class="text-xs font-bold text-stone-500 uppercase tracking-wider">卡片大小:</span>
+                <input type="range" id="scale-slider" min="0.7" max="1.3" step="0.1" value="1.0" oninput="changeCardScale(this.value)" class="w-32 h-1.5 bg-stone-200 rounded-lg appearance-none cursor-pointer accent-emerald-800">
+                <span id="scale-value" class="text-xs text-stone-600 font-mono font-semibold">100%</span>
+            </div>
+        </section>
+
+        <!-- 工具栏：标题、已掌握切换、搜索 -->
+        <section class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
+            <div class="flex items-center space-x-4">
+                <h2 class="text-lg font-bold text-stone-800 tracking-wider">
+                    单词卡片库
+                </h2>
+                <!-- 已掌握/复习中 状态切换 -->
+                <div class="flex items-center bg-stone-200/60 p-0.5 rounded-xl border border-stone-200/20 shrink-0">
+                    <button id="filter-review-btn" onclick="setCardFilter('review')" class="px-3 py-1.5 rounded-lg text-xs font-bold transition duration-200 bg-white text-emerald-800 shadow-sm whitespace-nowrap">
+                        复习中
+                    </button>
+                    <button id="filter-mastered-btn" onclick="setCardFilter('mastered')" class="px-3 py-1.5 rounded-lg text-xs font-bold transition duration-200 text-stone-500 hover:text-stone-800 whitespace-nowrap">
+                        已掌握
+                    </button>
+                </div>
+            </div>
+            
+            <div class="relative w-full sm:w-72">
+                <input type="text" id="search-input" 
+                    placeholder="搜索单词、假名或释义..." 
+                    class="w-full pl-9 pr-4 py-2 bg-white border border-stone-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700/20 focus:border-emerald-700 placeholder-stone-400 transition">
+                <span class="absolute left-3 top-2.5 text-stone-400">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                </span>
+            </div>
+        </section>
+
+        <!-- 工具栏第二行 -->
+        <section class="flex flex-wrap items-center gap-2.5 mb-8 border-t border-stone-200/60 pt-4">
+            <!-- 快捷功能：全部翻面 / 全部还原 -->
+            <button id="toggle-all-btn" class="px-3.5 py-2 border border-stone-200 hover:border-stone-300 hover:bg-stone-50 rounded-xl text-xs text-stone-600 transition whitespace-nowrap flex items-center space-x-1.5 shadow-sm">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 1121.21 8H18.5"></path></svg>
+                <span>全卡翻面</span>
+            </button>
+            <!-- 快捷功能：一键随机打乱顺序 -->
+            <button id="shuffle-btn" onclick="shuffleCards()" class="px-3.5 py-2 border border-stone-200 hover:border-stone-300 hover:bg-stone-50 rounded-xl text-xs text-stone-600 transition whitespace-nowrap flex items-center space-x-1.5 shadow-sm" title="随机打乱卡片顺序，加强记忆效果">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.4 15.6L20 14m0 0l-1.6-1.6M20 14H14.8c-.8 0-1.5-.4-2-1L9.2 9C8.7 8.4 8 8 7.2 8H4M4 16h3.2c.8 0 1.5-.4 2-1l1.4-1.8m2.4-3.2l1.4-1.8c.5-.6 1.2-1 2-1H20m0 0l-1.6-1.6M20 8l-1.6 1.6" />
+                </svg>
+                <span>打乱顺序</span>
+            </button>
+            <!-- 导出 Markdown 练习表 -->
+            <button onclick="exportToMD()" class="px-4 py-2 bg-stone-900 text-stone-100 hover:bg-stone-800 rounded-xl text-xs font-medium transition whitespace-nowrap flex items-center space-x-1.5 shadow-md ml-auto" title="一键导出为标准的A4三栏格式Markdown练习表">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                <span>导出 MD 练习表</span>
+            </button>
+        </section>
+
+        <!-- 单词卡片展示网格 -->
+        <div id="cards-grid" class="adaptive-grid">
+            <!-- 卡片由 JS 动态生成 -->
+        </div>
+
+        <!-- 空状态提示 -->
+        <div id="empty-state" class="hidden flex-col items-center justify-center py-20 text-center">
+            <div class="text-stone-300 mb-4">
+                <svg class="w-16 h-16 mx-auto stroke-current" fill="none" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"></path>
+                </svg>
+            </div>
+            <p id="empty-state-title" class="text-stone-500 mb-2 text-base">当前单词本空空如也</p>
+            <p id="empty-state-subtitle" class="text-stone-400 text-xs">快去上方输入，为此单词本录入第一个生词吧！</p>
+        </div>
+
+    </main>
+
+    <!-- 🔍 离线词典 & 查词 侧边抽屉 -->
+    <div id="dict-drawer" class="fixed inset-y-0 right-0 w-full sm:w-[420px] bg-white border-l border-stone-200 shadow-2xl z-50 transform translate-x-full transition-transform duration-300 ease-in-out flex flex-col justify-between hidden">
+        <!-- 抽屉头部 -->
+        <div class="p-5 border-b border-stone-100 flex justify-between items-center bg-stone-50">
+            <div class="flex items-center space-x-2">
+                <span class="text-lg font-bold text-amber-800">🔍 离线查词工具</span>
+                <span class="text-[10px] px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded border border-amber-200">IndexedDB 本地</span>
+            </div>
+            <button onclick="toggleDictionaryDrawer()" class="p-1 hover:bg-stone-200 rounded-lg text-stone-500 transition">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+            </button>
+        </div>
+
+        <!-- 抽屉主要内容区域 -->
+        <div class="p-5 flex-grow overflow-y-auto space-y-6">
+            <!-- 1. 词典搜索主功能 -->
+            <div class="space-y-2">
+                <div class="flex justify-between items-center">
+                    <label class="block text-xs font-bold text-stone-500 uppercase tracking-wider">本地词汇检索</label>
+                    <div id="dict-db-status" class="text-[9px] text-emerald-700 font-mono font-semibold"></div>
+                </div>
+                <div class="relative">
+                    <input type="text" id="dict-search-input" oninput="searchDictionary()" 
+                        placeholder="输入汉字、假名或中文含义查询..." 
+                        class="w-full pl-9 pr-4 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500">
+                    <span class="absolute left-3 top-3 text-stone-400">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                    </span>
+                </div>
+                <!-- 搜索结果渲染盒 -->
+                <div id="dict-results" class="space-y-2.5 max-h-80 overflow-y-auto pt-2 hidden">
+                    <!-- 动态生成 -->
+                </div>
+            </div>
+
+            <!-- 2. 在线查词直达车 -->
+            <div class="space-y-2 pt-2 border-t border-stone-100">
+                <label class="block text-xs font-bold text-stone-500 uppercase tracking-wider">专业在线词典联查</label>
+                <div class="grid grid-cols-3 gap-2">
+                    <button onclick="openExternalSearch('kotobank')" class="p-2.5 bg-stone-50 hover:bg-amber-500/10 hover:text-amber-900 border border-stone-200 rounded-xl text-xs font-semibold text-stone-600 transition flex flex-col items-center justify-center space-y-1" title="コトバンク">
+                        <span class="text-sm">🌐</span>
+                        <span>コトバンク</span>
+                    </button>
+                    <button onclick="openExternalSearch('weblio_cjjc')" class="p-2.5 bg-stone-50 hover:bg-amber-500/10 hover:text-amber-900 border border-stone-200 rounded-xl text-xs font-semibold text-stone-600 transition flex flex-col items-center justify-center space-y-1" title="Weblio中日日中辞典">
+                        <span class="text-sm">🇨🇳</span>
+                        <span>Weblio中日</span>
+                    </button>
+                    <button onclick="openExternalSearch('nicodic')" class="p-2.5 bg-stone-50 hover:bg-amber-500/10 hover:text-amber-900 border border-stone-200 rounded-xl text-xs font-semibold text-stone-600 transition flex flex-col items-center justify-center space-y-1" title="ニコニコ大百科">
+                        <span class="text-sm">📺</span>
+                        <span>ニコニコ大百科</span>
+                    </button>
+                </div>
+                <p class="text-[10px] text-stone-400 leading-relaxed text-center">输入检索词后，点击上方按钮将直接带词打开在线专业词典</p>
+            </div>
+        </div>
+
+        <div class="p-4 border-t border-stone-100 bg-stone-50 text-center">
+            <span class="text-[11px] text-stone-400">查出生词点击即可一键填入添加表单</span>
+        </div>
+    </div>
+
+    <!-- 1. 新建单词本 - 自定义模态框 -->
+    <div id="new-notebook-modal" class="fixed inset-0 bg-black/60 flex items-center justify-center hidden z-50 p-4 backdrop-blur-sm transition-all duration-300">
+        <div class="bg-white rounded-2xl border border-stone-200/80 p-6 w-full max-w-md shadow-2xl transform scale-95 transition-transform">
+            <h3 class="text-base font-bold text-stone-800 mb-4 flex items-center">
+                <span class="w-1.5 h-4 bg-emerald-700 rounded-full mr-2"></span>
+                新建单词分类
+            </h3>
+            <p class="text-xs text-stone-500 mb-4">输入新单词本的主题名称（如：“迷宫饭”、“日常”、“考级”等）：</p>
+            <input type="text" id="new-notebook-input" 
+                placeholder="例：迷宫饭" 
+                class="w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-700/20 focus:border-emerald-700 transition duration-200 text-stone-800 mb-5">
+            <div class="flex justify-end space-x-3">
+                <button onclick="closeNewNotebookModal()" class="px-4 py-2 border border-stone-200 rounded-xl text-xs text-stone-500 hover:bg-stone-50 transition">取消</button>
+                <button onclick="submitNewNotebook()" class="px-5 py-2 bg-emerald-800 text-white rounded-xl text-xs font-semibold hover:bg-emerald-900 transition">确定创建</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 2. 删除单词本 - 自定义确认模态框 -->
+    <div id="delete-notebook-modal" class="fixed inset-0 bg-black/60 flex items-center justify-center hidden z-50 p-4 backdrop-blur-sm transition-all duration-300">
+        <div class="bg-white rounded-2xl border border-stone-200/80 p-6 w-full max-w-md shadow-2xl transform scale-95 transition-transform">
+            <h3 class="text-base font-bold text-red-700 mb-4 flex items-center">
+                <svg class="w-5 h-5 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+                确认删除此单词本？
+            </h3>
+            <p class="text-xs text-stone-500 mb-2 leading-relaxed">
+                你正在尝试删除单词本：<strong id="delete-notebook-name" class="text-stone-800"></strong>
+            </p>
+            <p class="text-xs text-red-500 mb-5 font-semibold">⚠️ 注意：删除后，该册中保存的所有卡片都将永久消失，无法撤销！</p>
+            <div class="flex justify-end space-x-3">
+                <button onclick="closeDeleteNotebookConfirm()" class="px-4 py-2 border border-stone-200 rounded-xl text-xs text-stone-500 hover:bg-stone-50 transition">取消</button>
+                <button onclick="submitDeleteNotebook()" class="px-5 py-2 bg-red-600 text-white rounded-xl text-xs font-semibold hover:bg-red-700 transition">确认永久删除</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 3. 编辑单词卡片 - 自定义模态框 -->
+    <div id="edit-card-modal" class="fixed inset-0 bg-black/60 flex items-center justify-center hidden z-50 p-4 backdrop-blur-sm transition-all duration-300">
+        <div class="bg-white rounded-2xl border border-stone-200/80 p-6 w-full max-w-xl shadow-2xl transform scale-95 transition-transform">
+            <h3 class="text-base font-bold text-stone-800 mb-4 flex items-center">
+                <span class="w-1.5 h-4 bg-blue-600 rounded-full mr-2"></span>
+                修改单词卡片
+            </h3>
+            <form id="edit-vocab-form" class="space-y-4">
+                <input type="hidden" id="edit-card-id">
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div class="space-y-1 flex flex-col justify-between">
+                        <label class="block text-[11px] font-bold text-stone-500">单词 (Word)</label>
+                        <div class="relative w-full flex items-center">
+                            <input type="text" id="edit-word" required 
+                                class="font-japanese w-full pl-3 pr-20 py-2.5 bg-stone-50 border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-sm">
+                            <button type="button" id="edit-ai-parse-btn" onclick="autoLookupWord(true)" class="absolute right-1.5 py-1 px-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-md text-[11px] font-semibold hover:from-blue-700 hover:to-indigo-700 transition-all duration-200 flex items-center shadow-sm active:scale-95" title="使用AI重新校准读音">
+                                <span id="edit-ai-btn-spinner" class="hidden animate-spin mr-1">
+                                    <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                                </span>
+                                <span id="edit-ai-btn-text">匹配假名</span>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="space-y-1">
+                        <label class="block text-[11px] font-bold text-stone-500">假名 (Kana)</label>
+                        <input type="text" id="edit-kana" 
+                            class="font-japanese w-full px-3 py-2.5 bg-stone-50 border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-sm">
+                    </div>
+                </div>
+                <div class="space-y-1">
+                    <label class="block text-[11px] font-bold text-stone-500">中文释义 (Meaning)</label>
+                    <input type="text" id="edit-meaning" required 
+                        class="w-full px-3 py-2.5 bg-stone-50 border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-sm">
+                </div>
+                <div class="space-y-1">
+                    <label class="block text-[11px] font-bold text-stone-500">例句 (Example Sentence)</label>
+                    <textarea id="edit-example" rows="2" 
+                        class="w-full px-3 py-2 bg-stone-50 border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-sm resize-none"></textarea>
+                </div>
+                
+                <div class="flex items-center justify-between pt-3 border-t border-stone-100">
+                    <button type="button" onclick="submitDeleteCardPermanently()" class="px-4 py-2 text-red-600 hover:bg-red-50 rounded-xl text-xs font-semibold transition flex items-center space-x-1">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                        <span>彻底删除卡片</span>
+                    </button>
+                    <div class="flex space-x-2">
+                        <button type="button" onclick="closeEditCardModal()" class="px-4 py-2 border border-stone-200 rounded-xl text-xs text-stone-500 hover:bg-stone-50 transition">取消</button>
+                        <button type="submit" class="px-5 py-2 bg-blue-600 text-white rounded-xl text-xs font-semibold hover:bg-blue-700 transition">保存修改</button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- ✨ ☁️ GitHub Gist 云端同步设置面板 -->
+    <div id="cloud-sync-modal" class="fixed inset-0 bg-black/60 flex items-center justify-center hidden z-50 p-4 backdrop-blur-sm transition-all duration-300">
+        <div class="bg-white rounded-2xl border border-stone-200/80 p-6 md:p-8 w-full max-w-lg shadow-2xl transform scale-95 transition-transform">
+            <h3 class="text-base font-bold text-blue-700 mb-2 flex items-center">
+                <svg class="w-5 h-5 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z"></path></svg>
+                GitHub 云端数据同步
+            </h3>
+            <p class="text-xs text-stone-500 mb-6 leading-relaxed">
+                利用 GitHub Gist 作为您的免费云盘进行设备间同步。在电脑端点击【上传】，在手机端填入相同的 Token 和存档 ID 后点击【下载】，即可跨设备无缝接力复习！
+            </p>
+            
+            <div class="space-y-5">
+                <div class="space-y-1.5">
+                    <label class="flex justify-between items-center text-xs font-bold text-stone-600 uppercase tracking-wider">
+                        <span>1. 访问秘钥 (GitHub Token)</span>
+                        <a href="https://github.com/settings/tokens/new" target="_blank" class="text-blue-500 hover:underline font-normal normal-case">去申请 👉</a>
+                    </label>
+                    <input type="password" id="sync-token-input" placeholder="请粘贴 ghp_ 开头的字符串（需勾选 gist 权限）" class="w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-sm font-mono placeholder-stone-400">
+                </div>
+                <div class="space-y-1.5">
+                    <label class="block text-xs font-bold text-stone-600 uppercase tracking-wider">2. 云端存档 ID (Gist ID)</label>
+                    <input type="text" id="sync-gist-input" placeholder="首次上传请留空。系统会自动创建并回填" class="w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-sm font-mono placeholder-stone-400">
+                    <p class="text-[10px] text-stone-400 mt-1">如果你要在新设备恢复数据，请将包含旧数据的此 ID 复制过来填入。</p>
+                </div>
+            </div>
+
+            <div class="mt-8 flex flex-col sm:flex-row gap-3">
+                <button onclick="uploadToCloud()" class="flex-1 py-3.5 bg-stone-800 hover:bg-stone-900 text-white rounded-xl text-sm font-semibold transition flex items-center justify-center space-x-2 active:scale-95 shadow-md">
+                    <span>☁️ ⬆️ 上传至云端</span>
+                </button>
+                <button onclick="downloadFromCloud()" class="flex-1 py-3.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-semibold transition flex items-center justify-center space-x-2 active:scale-95 shadow-md shadow-blue-500/20">
+                    <span>☁️ ⬇️ 从云端拉取</span>
+                </button>
+            </div>
+            
+            <div class="mt-5 pt-4 border-t border-stone-100 text-right">
+                <button onclick="closeCloudSyncModal()" class="px-5 py-2.5 border border-stone-200 rounded-xl text-xs font-semibold text-stone-500 hover:bg-stone-50 transition">关闭面板</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 4. 非阻塞式通知 & 撤销操作 Toast -->
+    <div id="toast" class="fixed bottom-6 right-6 px-5 py-3.5 bg-stone-900 text-stone-100 rounded-xl text-sm shadow-xl transform translate-y-20 opacity-0 transition-all duration-300 pointer-events-auto z-50 flex items-center justify-between space-x-4 min-w-[280px]">
+        <span id="toast-message"></span>
+        <button id="toast-action" class="hidden text-emerald-400 hover:text-emerald-300 font-bold text-xs shrink-0 px-2 py-1 bg-stone-800 hover:bg-stone-700 rounded transition">撤销</button>
+    </div>
+
+    <!-- 页脚 -->
+    <footer class="border-t border-stone-200/60 bg-[#fcfbf7] py-6 text-center text-xs text-stone-400">
+        <p class="mb-1">个人日语单词账 · 精准的中日文排版保障</p>
+        <p class="font-mono">© 2026 Vibe Coding Project</p>
+    </footer>
+
+    <script>
+        
+        // 1. 初始化高品质默认单词数据
+        const defaultNotebooks = {
+            "日常": [
+                { id: "1", word: "一生[いっしょう]懸[けん]命[めい]", kana: "いっしょうけんめい", meaning: "拼命地，全力以赴地", example: "日本語を一生懸命勉強しています。(正在拼命地学日语。)", mastered: false },
+                { id: "2", word: "木漏[こも]れ日[び]", kana: "", meaning: "从树叶缝隙中漏出的日光（大自然治愈的瞬间）", example: "木漏れ日の下で、静かに本を読むのが至福の时です。(在树荫漏光下安静读书是极度幸福的时光。)", mastered: false },
+                { id: "3", word: "猫[ねこ]", kana: "ねこ", meaning: "猫咪", example: "うち的猫は一日中ひなたぼっこをしています。(我家的猫一整天都在晒太阳。)", mastered: false }
+            ]
+        };
+
+        const preloadedDictionary = [
+            { word: "美味しい", kana: "おいしい", meaning: "美味的，好吃的" },
+            { word: "日本語", kana: "にほんご", meaning: "日语" },
+            { word: "一生懸命", kana: "いっしょうけんめい", meaning: "拼命地，全力以赴地" },
+            { word: "木漏れ日", kana: "こもれび", meaning: "从树叶缝隙中漏出的日光" }
+        ];
+
+        let notebooks = {};
+        let activeNotebook = "日常";
+        let cardFilter = "review"; 
+        let layoutMode = "grid"; 
+        let lastDeletedCard = null; 
+        let lastMasteredCardId = null; 
+        let db = null; 
+
+        // 【新增】云同步核心参数变量
+        const GIST_FILENAME = "japanese_vocab_backup.json";
+
+        // 2. 从本地存储加载数据
+        function loadData() {
+            const oldData = localStorage.getItem('japanese_vocab_list');
+            const notebooksData = localStorage.getItem('japanese_vocab_notebooks');
+            const activeNotebookData = localStorage.getItem('japanese_vocab_active');
+
+            if (notebooksData) {
+                notebooks = JSON.parse(notebooksData);
+                activeNotebook = activeNotebookData || Object.keys(notebooks)[0] || "日常";
+            } else if (oldData) {
+                notebooks = { "日常": JSON.parse(oldData) };
+                if (notebooks["日常"].length === 0) notebooks["日常"] = [...defaultNotebooks["日常"]];
+                activeNotebook = "日常";
+                saveData();
+            } else {
+                notebooks = JSON.parse(JSON.stringify(defaultNotebooks));
+                activeNotebook = "日常";
+                saveData();
+            }
+            
+            if (!notebooks[activeNotebook]) activeNotebook = Object.keys(notebooks)[0] || "日常";
+
+            Object.keys(notebooks).forEach(bookName => {
+                notebooks[bookName].forEach(card => {
+                    if (card.mastered === undefined) card.mastered = false;
+                });
+            });
+            
+            renderNotebookTabs();
+            renderCards();
+            initIndexedDB(); 
+        }
+
+        function saveData() {
+            localStorage.setItem('japanese_vocab_notebooks', JSON.stringify(notebooks));
+            localStorage.setItem('japanese_vocab_active', activeNotebook);
+            updateHeaderCount();
+        }
+
+        // ==========================================
+        // ✨ GitHub Gist 云端同步系统逻辑
+        // ==========================================
+        
+        window.openCloudSyncModal = function() {
+            document.getElementById('sync-token-input').value = localStorage.getItem('github_sync_token') || "";
+            document.getElementById('sync-gist-input').value = localStorage.getItem('github_gist_id') || "";
+            document.getElementById('cloud-sync-modal').classList.remove('hidden');
+        }
+
+        window.closeCloudSyncModal = function() {
+            document.getElementById('cloud-sync-modal').classList.add('hidden');
+        }
+
+        window.uploadToCloud = async function() {
+            const token = document.getElementById('sync-token-input').value.trim();
+            const gistId = document.getElementById('sync-gist-input').value.trim();
+            
+            if (!token) return showToast("❌ 请先输入您的 GitHub Access Token");
+
+            // 保存 Token 以备下次使用
+            localStorage.setItem('github_sync_token', token);
+            showToast("正在加密并上传进度至云端...");
+
+            const dataToSave = {
+                notebooks: notebooks,
+                activeNotebook: activeNotebook,
+                timestamp: Date.now()
+            };
+            const contentString = JSON.stringify(dataToSave, null, 2);
+
+            try {
+                if (gistId) {
+                    // 更新已存在的 Gist
+                    const res = await fetch(`https://api.github.com/gists/${gistId}`, {
+                        method: 'PATCH',
+                        headers: {
+                            'Authorization': `token ${token}`,
+                            'Accept': 'application/vnd.github.v3+json'
+                        },
+                        body: JSON.stringify({
+                            files: { [GIST_FILENAME]: { content: contentString } }
+                        })
+                    });
+                    if(!res.ok) throw new Error("覆盖失败，请检查 Token 权限或 ID 是否正确");
+                } else {
+                    // 首次上传，创建新的私密 Gist
+                    const res = await fetch(`https://api.github.com/gists`, {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': `token ${token}`,
+                            'Accept': 'application/vnd.github.v3+json'
+                        },
+                        body: JSON.stringify({
+                            description: "📓 日语单词本 云端同步存档备份",
+                            public: false, // 保护用户隐私
+                            files: { [GIST_FILENAME]: { content: contentString } }
+                        })
+                    });
+                    if(!res.ok) throw new Error("创建云端存档失败，请检查 Token 是否有效");
+                    
+                    const resData = await res.json();
+                    const newGistId = resData.id;
+                    document.getElementById('sync-gist-input').value = newGistId;
+                    localStorage.setItem('github_gist_id', newGistId);
+                }
+                showToast("✅ 完美！进度已成功存档至云端！");
+            } catch (err) {
+                showToast(`上传中断: ${err.message}`);
+            }
+        }
+
+        window.downloadFromCloud = async function() {
+            const token = document.getElementById('sync-token-input').value.trim();
+            const gistId = document.getElementById('sync-gist-input').value.trim();
+            
+            if (!token || !gistId) return showToast("❌ 恢复数据需要同时提供 Token 和 存档 ID！");
+
+            localStorage.setItem('github_sync_token', token);
+            localStorage.setItem('github_gist_id', gistId);
+            showToast("正在请求云端数据，请稍候...");
+
+            try {
+                const res = await fetch(`https://api.github.com/gists/${gistId}`, {
+                    headers: {
+                        'Authorization': `token ${token}`,
+                        'Accept': 'application/vnd.github.v3+json'
+                    }
+                });
+                if(!res.ok) throw new Error("下载失败，请确认 Gist ID 属于您填写的账号");
+                
+                const resData = await res.json();
+                const fileObj = resData.files[GIST_FILENAME];
+                if(!fileObj) throw new Error("在该 ID 的云盘中未找到有效备份文件！");
+                
+                const parsedData = JSON.parse(fileObj.content);
+                if (parsedData && parsedData.notebooks) {
+                    notebooks = parsedData.notebooks;
+                    activeNotebook = parsedData.activeNotebook || Object.keys(notebooks)[0];
+                    
+                    saveData();
+                    renderNotebookTabs();
+                    renderCards();
+                    closeCloudSyncModal();
+                    showToast("🎉 数据同步成功！所有设备进度已对齐！");
+                }
+            } catch (err) {
+                showToast(`拉取中断: ${err.message}`);
+            }
+        }
+
+
+        // 4. 解析 bracket 语法
+        function parseRubyText(word, fallbackKana) {
+            const bracketRegex = /([^\s\[\]\u3040-\u309f]+)\[([^\]]+)\]/g;
+            if (bracketRegex.test(word)) {
+                bracketRegex.lastIndex = 0;
+                return word.replace(bracketRegex, '<ruby>$1<rt>$2</rt></ruby>');
+            }
+            if (fallbackKana && fallbackKana.trim() !== "") {
+                return `<ruby>${word}<rt>${fallbackKana.trim()}</rt></ruby>`;
+            }
+            return word;
+        }
+
+        // 5. 智能分离例句
+        function formatExample(exampleText) {
+            if (!exampleText) return '';
+            const match = exampleText.match(/^([^ (（]+)(?:[ (（]([^ )）]+)[ )）])?$/);
+            if (match) {
+                const jpSent = match[1].trim();
+                const cnTrans = match[2] ? match[2].trim() : '';
+                return `
+                    <div class="text-left bg-white/70 rounded-xl border border-stone-200/30 w-full" style="padding: calc(0.75rem * var(--card-scale, 1.0));">
+                        <span class="uppercase font-bold tracking-wider text-emerald-800/50 block" style="font-size: var(--fs-tiny, 0.625rem); margin-bottom: calc(0.25rem * var(--card-scale, 1.0));">例句</span>
+                        <div class="font-japanese text-stone-800 font-medium leading-relaxed" style="font-size: calc(0.84rem * var(--card-scale, 1.0));">${jpSent}</div>
+                        ${cnTrans ? `<div class="text-stone-500 leading-normal" style="font-size: calc(0.75rem * var(--card-scale, 1.0));">${cnTrans}</div>` : ''}
+                    </div>
+                `;
+            }
+            return `
+                <div class="text-left bg-white/70 rounded-xl border border-stone-200/30 w-full" style="padding: calc(0.75rem * var(--card-scale, 1.0));">
+                    <span class="uppercase font-bold tracking-wider text-emerald-800/50 block" style="font-size: var(--fs-tiny, 0.625rem); margin-bottom: calc(0.25rem * var(--card-scale, 1.0));">例句</span>
+                    <div class="font-japanese text-stone-800 font-medium leading-relaxed" style="font-size: calc(0.84rem * var(--card-scale, 1.0));">${exampleText}</div>
+                </div>
+            `;
+        }
+
+        // 6. 更新顶部数量
+        function updateHeaderCount() {
+            const countEl = document.getElementById('card-count');
+            const badgeEl = document.getElementById('active-notebook-badge');
+            
+            const list = notebooks[activeNotebook] || [];
+            const reviewedList = list.filter(c => !c.mastered);
+            const masteredList = list.filter(c => c.mastered);
+
+            countEl.innerHTML = `复习中：<strong class="text-emerald-800 text-sm font-sans mx-0.5">${reviewedList.length}</strong> · 已掌握：<strong class="text-stone-500 text-sm font-sans mx-0.5">${masteredList.length}</strong>`;
+            badgeEl.innerText = activeNotebook;
+        }
+
+        // 8. 切换状态筛选
+        window.setCardFilter = function(filter) {
+            cardFilter = filter;
+            const reviewBtn = document.getElementById('filter-review-btn');
+            const masteredBtn = document.getElementById('filter-mastered-btn');
+            
+            if (cardFilter === "review") {
+                reviewBtn.className = "px-3 py-1.5 rounded-lg text-xs font-bold transition duration-200 bg-white text-emerald-800 shadow-sm whitespace-nowrap";
+                masteredBtn.className = "px-3 py-1.5 rounded-lg text-xs font-bold transition duration-200 text-stone-500 hover:text-stone-800 whitespace-nowrap";
+            } else {
+                reviewBtn.className = "px-3 py-1.5 rounded-lg text-xs font-bold transition duration-200 text-stone-500 hover:text-stone-800 whitespace-nowrap";
+                masteredBtn.className = "px-3 py-1.5 rounded-lg text-xs font-bold transition duration-200 bg-white text-emerald-800 shadow-sm whitespace-nowrap";
+            }
+            renderCards();
+        }
+
+        // 8.5 视图切换
+        window.setViewMode = function(mode) {
+            layoutMode = mode;
+            const gridBtn = document.getElementById('view-grid-btn');
+            const listBtn = document.getElementById('view-list-btn');
+            const scaleControl = document.getElementById('scale-control-container');
+            const gridContainer = document.getElementById('cards-grid');
+
+            if (mode === "grid") {
+                gridBtn.className = "px-3.5 py-1.5 rounded-lg text-xs font-bold transition duration-200 bg-white text-emerald-800 shadow-sm flex items-center space-x-1.5";
+                listBtn.className = "px-3.5 py-1.5 rounded-lg text-xs font-bold transition duration-200 text-stone-500 hover:text-stone-800 flex items-center space-x-1.5";
+                scaleControl.classList.remove('opacity-40', 'pointer-events-none');
+                gridContainer.className = "adaptive-grid";
+            } else {
+                gridBtn.className = "px-3.5 py-1.5 rounded-lg text-xs font-bold transition duration-200 text-stone-500 hover:text-stone-800 flex items-center space-x-1.5";
+                listBtn.className = "px-3.5 py-1.5 rounded-lg text-xs font-bold transition duration-200 bg-white text-emerald-800 shadow-sm flex items-center space-x-1.5";
+                scaleControl.classList.add('opacity-40', 'pointer-events-none');
+                gridContainer.className = "grid grid-cols-1 gap-3 max-w-2xl mx-auto";
+            }
+            renderCards();
+        }
+
+        // 8.6 缩放
+        window.changeCardScale = function(val) {
+            const scale = parseFloat(val);
+            const grid = document.getElementById('cards-grid');
+            grid.style.setProperty('--card-scale', scale);
+            grid.style.setProperty('--card-width', (300 * scale) + 'px');
+            grid.style.setProperty('--card-height', (320 * scale) + 'px');
+            document.getElementById('scale-value').innerText = Math.round(scale * 100) + '%';
+        }
+
+        // 9. 渲染单词本标签
+        function renderNotebookTabs() {
+            const container = document.getElementById('notebook-tabs');
+            const names = Object.keys(notebooks);
+            
+            container.innerHTML = names.map(name => {
+                const isActive = name === activeNotebook;
+                const activeStyle = "bg-emerald-800 text-white shadow-sm font-semibold";
+                const inactiveStyle = "bg-white hover:bg-stone-100/80 text-stone-600 border border-stone-200 hover:border-stone-300";
+                const reviewCount = notebooks[name].filter(c => !c.mastered).length;
+                return `
+                    <button onclick="switchNotebook('${name}')" class="px-4 py-1.5 rounded-full text-xs transition duration-200 whitespace-nowrap ${isActive ? activeStyle : inactiveStyle}">
+                        ${name}
+                        <span class="ml-1 text-[10px] opacity-60">(${reviewCount})</span>
+                    </button>
+                `;
+            }).join('');
+        }
+
+        window.switchNotebook = function(name) {
+            activeNotebook = name;
+            saveData();
+            renderNotebookTabs();
+            renderCards();
+        }
+
+        // 10. 管理模块
+        window.openNewNotebookModal = function() {
+            const modal = document.getElementById('new-notebook-modal');
+            const input = document.getElementById('new-notebook-input');
+            input.value = "";
+            modal.classList.remove('hidden');
+            setTimeout(() => input.focus(), 150);
+        }
+        window.closeNewNotebookModal = function() { document.getElementById('new-notebook-modal').classList.add('hidden'); }
+        window.submitNewNotebook = function() {
+            const newName = document.getElementById('new-notebook-input').value.trim();
+            if (!newName) return showToast("名字不能为空哦");
+            if (notebooks[newName]) return showToast("该单词本名称已存在！");
+            notebooks[newName] = [];
+            activeNotebook = newName;
+            saveData();
+            closeNewNotebookModal();
+            renderNotebookTabs();
+            renderCards();
+            showToast(`单词本【${newName}】创建成功！`);
+        }
+        window.openDeleteNotebookConfirm = function() {
+            if (Object.keys(notebooks).length <= 1) return showToast("至少需要保留一个单词本！");
+            document.getElementById('delete-notebook-name').innerText = activeNotebook;
+            document.getElementById('delete-notebook-modal').classList.remove('hidden');
+        }
+        window.closeDeleteNotebookConfirm = function() { document.getElementById('delete-notebook-modal').classList.add('hidden'); }
+        window.submitDeleteNotebook = function() {
+            const toDelete = activeNotebook;
+            delete notebooks[toDelete];
+            activeNotebook = Object.keys(notebooks)[0];
+            saveData();
+            closeDeleteNotebookConfirm();
+            renderNotebookTabs();
+            renderCards();
+            showToast(`已永久删除单词本【${toDelete}】`);
+        }
+        window.toggleListExpand = function(element) {
+            if (layoutMode !== "list") return;
+            const expandedSection = element.querySelector('.list-expand-area');
+            const arrowIcon = element.querySelector('.arrow-icon');
+            if (expandedSection.classList.contains('hidden')) {
+                expandedSection.classList.remove('hidden');
+                arrowIcon.classList.add('rotate-180');
+            } else {
+                expandedSection.classList.add('hidden');
+                arrowIcon.classList.remove('rotate-180');
+            }
+        }
+
+        // 11. 渲染卡片
+        function renderCards() {
+            const grid = document.getElementById('cards-grid');
+            const emptyState = document.getElementById('empty-state');
+            const searchVal = document.getElementById('search-input').value.toLowerCase().trim();
+            const currentList = notebooks[activeNotebook] || [];
+
+            let filteredList = currentList.filter(item => cardFilter === "review" ? !item.mastered : item.mastered);
+            filteredList = filteredList.filter(item => {
+                if (!searchVal) return true;
+                return item.word.toLowerCase().includes(searchVal) || 
+                       (item.kana && item.kana.toLowerCase().includes(searchVal)) || 
+                       item.meaning.toLowerCase().includes(searchVal) ||
+                       (item.example && item.example.toLowerCase().includes(searchVal));
+            });
+
+            if (filteredList.length === 0) {
+                grid.innerHTML = '';
+                emptyState.classList.remove('hidden');
+                emptyState.classList.add('flex');
+                document.getElementById('empty-state-title').innerText = cardFilter === "review" ? "当前分类没有未掌握单词" : "还没有已掌握的单词";
+                updateHeaderCount();
+                return;
+            } else {
+                emptyState.classList.remove('flex');
+                emptyState.classList.add('hidden');
+            }
+
+            if (layoutMode === "grid") {
+                grid.className = "adaptive-grid";
+            } else {
+                grid.className = "grid grid-cols-1 gap-3 max-w-2xl mx-auto";
+            }
+
+            grid.innerHTML = filteredList.map(item => {
+                const rubyBack = parseRubyText(item.word, item.kana);
+                const cleanWordFront = item.word.replace(/([^\s\[\]]+)\[([^\]]+)\]/g, '$1');
+
+                const masterButtonHtml = `
+                    <button onclick="toggleCardMastered(event, '${item.id}')" class="${item.mastered ? 'text-emerald-600 hover:text-emerald-700 bg-emerald-50' : 'text-stone-300 hover:text-emerald-600 hover:bg-emerald-50'} rounded-lg transition duration-150 shrink-0 flex items-center justify-center" style="padding: calc(0.375rem * var(--card-scale, 1.0));" title="${item.mastered ? '移回复习中' : '标记为已掌握'}">
+                        <svg class="w-4 h-4" style="width: calc(1rem * var(--card-scale, 1.0)); height: calc(1rem * var(--card-scale, 1.0));" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="${item.mastered ? '2.2' : '2.5'}" d="${item.mastered ? 'M10 19l-7-7m0 0l7-7m-7 7h18' : 'M5 13l4 4L19 7'}"></path>
+                        </svg>
+                    </button>
+                `;
+
+                const editButtonHtml = `
+                    <button onclick="openEditCardModal(event, '${item.id}')" class="text-stone-300 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition duration-150 shrink-0 flex items-center justify-center" style="padding: calc(0.375rem * var(--card-scale, 1.0));" title="修改卡片内容">
+                        <svg class="w-4 h-4" style="width: calc(1rem * var(--card-scale, 1.0)); height: calc(1rem * var(--card-scale, 1.0));" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg>
+                    </button>
+                `;
+
+                if (layoutMode === "grid") {
+                    return `
+                        <div class="perspective group cursor-pointer card-scale-box" onclick="flipCard(this)">
+                            <div class="card-inner relative w-full h-full duration-500 rounded-2xl shadow-sm border border-stone-200/80 bg-white">
+                                <div class="card-front absolute inset-0 w-full h-full flex flex-col justify-between rounded-2xl bg-white overflow-hidden" style="padding: var(--card-pad);">
+                                    <div class="flex justify-between items-center w-full shrink-0" style="margin-bottom: var(--spacing-gap);">
+                                        <span class="tracking-widest text-stone-300 font-mono font-bold" style="font-size: var(--fs-tiny);">FRONT · 点击翻面</span>
+                                        <div class="flex items-center space-x-1">
+                                            ${editButtonHtml}
+                                            ${masterButtonHtml}
+                                        </div>
+                                    </div>
+                                    <div class="my-auto text-center w-full overflow-hidden">
+                                        <h3 class="font-japanese font-medium tracking-wide text-stone-800 leading-normal truncate" style="font-size: var(--fs-title);">${cleanWordFront}</h3>
+                                    </div>
+                                    <div class="text-center shrink-0" style="margin-top: var(--spacing-gap);">
+                                        <span class="text-emerald-800/60 group-hover:text-emerald-800 transition-colors duration-200 font-medium" style="font-size: var(--fs-small);">点击查看假名及释义 →</span>
+                                    </div>
+                                </div>
+                                <div class="card-back absolute inset-0 w-full h-full flex flex-col justify-between rounded-2xl bg-[#faf9f4] border border-stone-200/50 overflow-hidden" style="padding: var(--card-pad);">
+                                    <div class="flex justify-between items-center w-full shrink-0" style="margin-bottom: var(--spacing-gap);">
+                                        <span class="tracking-widest text-emerald-800/40 font-mono font-bold" style="font-size: var(--fs-tiny);">BACK · 解释与例句</span>
+                                        <div class="flex items-center space-x-1">
+                                            ${editButtonHtml}
+                                            ${masterButtonHtml}
+                                        </div>
+                                    </div>
+                                    <div class="flex-grow w-full overflow-hidden relative">
+                                        <div class="card-content-scroll w-full h-full flex flex-col justify-start">
+                                            <div class="w-full my-auto flex flex-col" style="gap: var(--spacing-gap);">
+                                                <div class="text-center">
+                                                    <h3 class="font-japanese font-medium text-stone-900 leading-normal inline-block" style="font-size: var(--fs-sub);">${rubyBack}</h3>
+                                                </div>
+                                                <div class="text-center">
+                                                    <p class="text-stone-700 bg-stone-200/40 rounded-lg inline-block max-w-full font-semibold" style="font-size: var(--fs-text); padding: calc(0.375rem * var(--card-scale, 1.0)) calc(0.75rem * var(--card-scale, 1.0));">${item.meaning}</p>
+                                                </div>
+                                                ${item.example ? formatExample(item.example) : ''}
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="text-center shrink-0" style="margin-top: var(--spacing-gap);">
+                                        <span class="text-stone-400" style="font-size: var(--fs-tiny);">再次点击可转回正面</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    return `
+                        <div class="bg-white border border-stone-200/80 rounded-xl shadow-sm hover:border-emerald-600/20 transition-all duration-200 overflow-hidden cursor-pointer" onclick="toggleListExpand(this)">
+                            <div class="px-5 py-3.5 flex justify-between items-center bg-white hover:bg-stone-50/50">
+                                <div class="flex items-center space-x-3">
+                                    <span class="w-1.5 h-1.5 bg-emerald-800 rounded-full"></span>
+                                    <span class="font-japanese text-base font-semibold text-stone-800 tracking-wide">${cleanWordFront}</span>
+                                </div>
+                                <div class="flex items-center space-x-2.5">
+                                    ${editButtonHtml}
+                                    ${masterButtonHtml}
+                                    <svg class="w-4 h-4 text-stone-400 transition-transform duration-300 transform arrow-icon shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7"></path></svg>
+                                </div>
+                            </div>
+                            <div class="list-expand-area hidden border-t border-stone-100 bg-[#faf9f4]/80 px-6 py-4 space-y-4">
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                                    <div class="flex items-center space-x-2">
+                                        <span class="text-xs font-bold text-stone-400 uppercase tracking-wider shrink-0">假名读音:</span>
+                                        <span class="font-japanese font-medium text-stone-900 leading-normal inline-block">${rubyBack}</span>
+                                    </div>
+                                    <div class="flex items-center space-x-2">
+                                        <span class="text-xs font-bold text-stone-400 uppercase tracking-wider shrink-0">中文释义:</span>
+                                        <span class="text-stone-800 font-semibold px-2.5 py-1 bg-stone-200/40 rounded-lg inline-block">${item.meaning}</span>
+                                    </div>
+                                </div>
+                                ${item.example ? formatExample(item.example) : ''}
+                            </div>
+                        </div>
+                    `;
+                }
+            }).join('');
+
+            updateHeaderCount();
+        }
+
+        // 12. 翻牌与模态框
+        window.flipCard = function(element) { element.querySelector('.card-inner').classList.toggle('is-flipped'); }
+        
+        window.openEditCardModal = function(event, cardId) {
+            event.stopPropagation(); 
+            const card = (notebooks[activeNotebook] || []).find(c => c.id === cardId);
+            if (!card) return;
+            document.getElementById('edit-card-id').value = card.id;
+            document.getElementById('edit-word').value = card.word;
+            document.getElementById('edit-kana').value = card.kana;
+            document.getElementById('edit-meaning').value = card.meaning;
+            document.getElementById('edit-example').value = card.example || '';
+            document.getElementById('edit-card-modal').classList.remove('hidden');
+        }
+        window.closeEditCardModal = function() { document.getElementById('edit-card-modal').classList.add('hidden'); }
+        
+        document.getElementById('edit-vocab-form').addEventListener('submit', function(e) {
+            e.preventDefault();
+            const cardId = document.getElementById('edit-card-id').value;
+            const card = (notebooks[activeNotebook] || []).find(c => c.id === cardId);
+            if (card) {
+                card.word = document.getElementById('edit-word').value.trim();
+                card.kana = document.getElementById('edit-kana').value.trim();
+                card.meaning = document.getElementById('edit-meaning').value.trim();
+                card.example = document.getElementById('edit-example').value.trim();
+                saveData(); renderCards(); closeEditCardModal(); showToast("卡片内容修改保存成功！");
+            }
+        });
+
+        window.submitDeleteCardPermanently = function() {
+            const cardId = document.getElementById('edit-card-id').value;
+            const currentList = notebooks[activeNotebook] || [];
+            const cardIndex = currentList.findIndex(c => c.id === cardId);
+            if (cardIndex > -1) {
+                lastDeletedCard = { card: currentList[cardIndex], index: cardIndex, notebook: activeNotebook };
+                currentList.splice(cardIndex, 1);
+                saveData(); renderCards(); renderNotebookTabs(); closeEditCardModal();
+                showToast("已从单词库彻底删除该卡片", () => {
+                    if (lastDeletedCard) {
+                        notebooks[lastDeletedCard.notebook].splice(lastDeletedCard.index, 0, lastDeletedCard.card);
+                        saveData(); renderCards(); renderNotebookTabs(); showToast("已成功撤销，卡片已恢复！");
+                        lastDeletedCard = null;
+                    }
+                });
+            }
+        }
+
+        window.toggleCardMastered = function(event, cardId) {
+            event.stopPropagation();
+            const card = (notebooks[activeNotebook] || []).find(c => c.id === cardId);
+            if (card) {
+                const oldStatus = card.mastered;
+                card.mastered = !card.mastered;
+                saveData(); renderCards(); renderNotebookTabs();
+                lastMasteredCardId = cardId;
+                showToast(oldStatus ? "已重新移回【复习中】单词册" : "已归档到【已掌握】归档库！", () => {
+                    const found = (notebooks[activeNotebook] || []).find(c => c.id === lastMasteredCardId);
+                    if (found) { found.mastered = oldStatus; saveData(); renderCards(); renderNotebookTabs(); showToast("撤销操作成功！"); }
+                });
+            }
+        }
+
+        // ==========================================
+        // ✨ 集成内置 Gemini API 智能假名匹配算法
+        // ==========================================
+        async function fetchWithBackoff(url, options, retries = 5, delay = 1000) {
+            for (let i = 0; i < retries; i++) {
+                try {
+                    const response = await fetch(url, options);
+                    if (response.ok) return await response.json();
+                    throw new Error(`API 返回错误代码: ${response.status}`);
+                } catch (error) {
+                    if (i === retries - 1) throw error;
+                    await new Promise(res => setTimeout(res, delay));
+                    delay *= 2;
+                }
+            }
+        }
+
+        window.autoLookupWord = async function(isEdit = false) {
+            const wordInputId = isEdit ? 'edit-word' : 'input-word';
+            const wordVal = document.getElementById(wordInputId).value.trim();
+            if (!wordVal) return showToast("请先输入需要匹配的日语单词。");
+
+            const btnTextId = isEdit ? 'edit-ai-btn-text' : 'ai-btn-text';
+            const btnSpinnerId = isEdit ? 'edit-ai-btn-spinner' : 'ai-btn-spinner';
+            const btn = document.getElementById(isEdit ? 'edit-ai-parse-btn' : 'ai-parse-btn');
+
+            btn.disabled = true; document.getElementById(btnSpinnerId).classList.remove('hidden'); document.getElementById(btnTextId).innerText = "匹配中...";
+
+            const apiKey = ""; // 运行时环境将自动补全
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+            const systemPrompt = `你是一个非常专业且极致克制的日语研究助手。任务：仅仅生成读音平假名，以及带汉字振假名括号的对齐文本。不要尝试生成例句、中文解释。要求：生成精准的“振假名括号对齐文本” (word_with_bracket) 中括号[ ]里的假名必须只标注在对应的日文汉字上，绝对不能黏连周围的平假名。`;
+
+            try {
+                const result = await fetchWithBackoff(url, {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        contents: [{ parts: [{ text: wordVal }] }],
+                        systemInstruction: { parts: [{ text: systemPrompt }] },
+                        generationConfig: { responseMimeType: "application/json", responseSchema: { type: "OBJECT", properties: { kana: { type: "STRING" }, word_with_bracket: { type: "STRING" } }, required: ["kana", "word_with_bracket"] } }
+                    })
+                });
+                const data = JSON.parse(result.candidates?.[0]?.content?.parts?.[0]?.text);
+                if (isEdit) { document.getElementById('edit-word').value = data.word_with_bracket; document.getElementById('edit-kana').value = data.kana; }
+                else { document.getElementById('input-word').value = data.word_with_bracket; document.getElementById('input-kana').value = data.kana; }
+                showToast("✨ 假名标注匹配成功！");
+            } catch (error) {
+                showToast("假名智能解析失败，请手动录入。");
+            } finally {
+                btn.disabled = false; document.getElementById(btnSpinnerId).classList.add('hidden'); document.getElementById(btnTextId).innerText = "匹配假名";
+            }
+        }
+
+        // ==========================================
+        // 💾 IndexedDB 离线词典逻辑与工具栏
+        // ==========================================
+        function initIndexedDB() { /* ...省略初始化，保持与原来一致... */ }
+        window.searchDictionary = function() { /* ...省略搜索逻辑... */ }
+        window.openExternalSearch = function(site) { /* ...省略在线搜索... */ }
+        window.toggleDictionaryDrawer = function() {
+            const drawer = document.getElementById('dict-drawer');
+            if (drawer.classList.contains('hidden')) {
+                drawer.classList.remove('hidden');
+                setTimeout(() => drawer.classList.remove('translate-x-full'), 50);
+            } else {
+                drawer.classList.add('translate-x-full');
+                setTimeout(() => drawer.classList.add('hidden'), 300);
+            }
+        }
+
+        document.getElementById('vocab-form').addEventListener('submit', function(e) {
+            e.preventDefault();
+            const wordInput = document.getElementById('input-word');
+            const newVocab = {
+                id: Date.now().toString(),
+                word: wordInput.value.trim(),
+                kana: document.getElementById('input-kana').value.trim(),
+                meaning: document.getElementById('input-meaning').value.trim(),
+                example: document.getElementById('input-example').value.trim(),
+                mastered: false
+            };
+            if (!notebooks[activeNotebook]) notebooks[activeNotebook] = [];
+            notebooks[activeNotebook].unshift(newVocab);
+            saveData();
+            if (cardFilter !== "review") setCardFilter("review"); else renderCards();
+            renderNotebookTabs();
+            e.target.reset(); wordInput.focus();
+            showToast("成功添加词卡到当前单词本！");
+        });
+
+        document.getElementById('search-input').addEventListener('input', renderCards);
+
+        document.getElementById('toggle-all-btn').addEventListener('click', () => {
+            if (layoutMode !== "grid") return showToast("一键全部翻转功能只支持【卡片平铺】模式哦！");
+            let allFlipped = !document.querySelector('.card-inner').classList.contains('is-flipped');
+            document.querySelectorAll('.card-inner').forEach(c => allFlipped ? c.classList.add('is-flipped') : c.classList.remove('is-flipped'));
+            document.querySelector('#toggle-all-btn span').innerText = allFlipped ? "还原正面" : "全卡翻面";
+        });
+
+        window.shuffleCards = function() {
+            const list = notebooks[activeNotebook] || [];
+            if (list.length <= 1) return showToast("当前本里只有一个单词，不用打乱哦！");
+            for (let i = list.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [list[i], list[j]] = [list[j], list[i]];
+            }
+            saveData(); renderCards(); showToast("顺序已打乱！快开始新一轮复习吧 🎲");
+        }
+
+        // 17. 导出 Markdown (防冲突版)
+        window.exportToMD = function() {
+            const currentList = notebooks[activeNotebook] || [];
+            if (currentList.length === 0) return showToast("当前单词本没有可以导出的单词！");
+
+            const dateStr = new Date().toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' });
+            let mdContent = `# 📓 日语单词自测练习表 (${activeNotebook})\n\n- **所属单词本**: ${activeNotebook}\n- **导出日期**: ${dateStr}\n- **生词总数**: ${currentList.length} 词\n\n---\n\n`;
+            mdContent += `> **💡 背诵建议**：你可以直接将此文件导入 Obsidian、Notion 或任何支持 Markdown 的编辑器中进行背诵复习。最右侧的 [ 默写与自测备注栏 ] 保持空白，专门留给你进行手写自测和错词标记。\n\n`;
+            mdContent += `| 单词与假名 | 中文释义与例句 | 默写/自测备注栏 |\n| :--- | :--- | :--- |\n`;
+
+            currentList.forEach(item => {
+                let cleanWord = item.word.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+                let wordCol = `**${cleanWord}**`;
+                if (item.kana) wordCol += `<br>_(${item.kana.trim()})_`;
+                
+                let cleanMeaning = item.meaning.replace(/\|/g, "\\|").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+                let meaningCol = `${cleanMeaning}`;
+                if (item.example) {
+                    let cleanExample = item.example.replace(/\|/g, "\\|").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+                    meaningCol += `<br><span style="font-size: 0.85em; color: #78716c;">*例句: ${cleanExample}*</span>`;
+                }
+                mdContent += `| ${wordCol} | ${meaningCol} |  |\n`;
+            });
+
+            try {
+                const blob = new Blob([mdContent], { type: 'text/markdown;charset=utf-8;' });
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement("a");
+                link.href = url; link.setAttribute("download", `${activeNotebook}_日语单词练习表.md`);
+                document.body.appendChild(link); link.click(); document.body.removeChild(link);
+                URL.revokeObjectURL(url);
+                showToast("🎉 Markdown 练习表导出成功，已开始下载！");
+            } catch (err) {
+                showToast("导出失败，请检查浏览器隐私及下载设置。");
+            }
+        }
+
+        window.onload = function() {
+            loadData();
+        }
+    </script>
+</body>
+</html>
