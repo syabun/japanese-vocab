@@ -1099,7 +1099,7 @@
 
             btn.disabled = true; document.getElementById(btnSpinnerId).classList.remove('hidden'); document.getElementById(btnTextId).innerText = "匹配中...";
 
-            const apiKey = ""; // 运行时环境将自动补全
+            const apiKey = "AIzaSyC0FFxS7qlmdOm7vZo1XP800Cgl9KY2Fzo"; // 运行时环境将自动补全
             const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
             const systemPrompt = `你是一个非常专业且极致克制的日语研究助手。任务：仅仅生成读音平假名，以及带汉字振假名括号的对齐文本。不要尝试生成例句、中文解释。要求：生成精准的“振假名括号对齐文本” (word_with_bracket) 中括号[ ]里的假名必须只标注在对应的日文汉字上，绝对不能黏连周围的平假名。`;
 
