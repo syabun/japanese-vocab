@@ -1655,6 +1655,86 @@
             }
         }
 
+        // 15. 生词主表单提交
+        document.getElementById('vocab-form').addEventListener('submit', function(e) {
+            e.preventDefault(); // 阻止浏览器默认的刷新动作
+            
+            const wordInput = document.getElementById('input-word');
+            const kanaInput = document.getElementById('input-kana');
+            const meaningInput = document.getElementById('input-meaning');
+            const exampleInput = document.getElementById('input-example');
+
+            const newVocab = {
+                id: Date.now().toString(),
+                word: wordInput.value.trim(),
+                kana: kanaInput.value.trim(),
+                meaning: meaningInput.value.trim(),
+                example: exampleInput.value.trim(),
+                mastered: false
+            };
+
+            if (!notebooks[activeNotebook]) {
+                notebooks[activeNotebook] = [];
+            }
+
+            notebooks[activeNotebook].unshift(newVocab);
+            saveData();
+            
+            if (cardFilter !== "review") {
+                setCardFilter("review");
+            } else {
+                renderCards();
+            }
+            renderNotebookTabs();
+
+            e.target.reset(); // 清空表单
+            wordInput.focus();
+
+            showToast("成功添加词卡到当前单词本！");
+        });
+
+        // 实时搜索过滤功能
+        document.getElementById('search-input').addEventListener('input', renderCards);
+
+        // 16. 一键翻面
+        let allFlipped = false;
+        document.getElementById('toggle-all-btn').addEventListener('click', () => {
+            if (layoutMode !== "grid") {
+                showToast("一键全部翻转功能只支持【卡片平铺】模式哦！");
+                return;
+            }
+            const cardInners = document.querySelectorAll('.card-inner');
+            allFlipped = !allFlipped;
+            cardInners.forEach(card => {
+                if (allFlipped) {
+                    card.classList.add('is-flipped');
+                } else {
+                    card.classList.remove('is-flipped');
+                }
+            });
+            
+            const btnSpan = document.querySelector('#toggle-all-btn span');
+            btnSpan.innerText = allFlipped ? "还原正面" : "全卡翻面";
+        });
+
+        // 16.5 一键随机打乱当前单词本的卡片显示顺序
+        window.shuffleCards = function() {
+            const currentList = notebooks[activeNotebook] || [];
+            if (currentList.length <= 1) {
+                showToast("当前本里只有一个单词，不用打乱哦！");
+                return;
+            }
+
+            for (let i = currentList.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [currentList[i], currentList[j]] = [currentList[j], currentList[i]];
+            }
+
+            saveData();
+            renderCards();
+            showToast("顺序已打乱！快开始新一轮复习吧 🎲");
+        }
+
 
         // 17. 💾 一键生成并导出格式精美、兼容极佳的 A4 结构 Markdown 练习表
         window.exportToMD = function() {
