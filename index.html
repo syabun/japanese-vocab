@@ -132,7 +132,11 @@
                 <span class="text-xl font-bold tracking-widest text-emerald-800">日语单词本</span>
                 <span id="active-notebook-badge" class="text-xs px-2 py-0.5 bg-stone-100 text-stone-500 rounded-full border border-stone-200/60 font-medium">日常</span>
             </div>
-            <div class="flex items-center space-x-4">
+            <div class="flex items-center space-x-3">
+                <!-- ⚙️ AI设置 按钮 -->
+                <button onclick="openAiSettingsModal()" class="px-3 py-1.5 bg-stone-100 hover:bg-stone-200 text-stone-700 border border-stone-300 rounded-full text-xs font-semibold flex items-center space-x-1.5 transition active:scale-95 shadow-sm" title="安全存储并一键切换 AI 服务商 (Gemini / DeepSeek)">
+                    <span>⚙️ AI设置</span>
+                </button>
                 <!-- ☁️ 云同步按钮 -->
                 <button onclick="openCloudSyncModal()" class="px-3.5 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-200 rounded-full text-xs font-semibold flex items-center space-x-1.5 transition active:scale-95 shadow-sm" title="使用 GitHub Gist 跨设备同步数据">
                     <span>☁️ 云同步</span>
@@ -195,7 +199,7 @@
                 <div class="space-y-1.5">
                     <label class="block text-xs font-semibold text-stone-500">例句 (Example Sentence)</label>
                     <textarea id="input-example" rows="2" lang="ja"
-                        placeholder="例：日本語を一生懸命勉強しています。(正在拼命地学日语。)" 
+                        placeholder="例：その猫が可愛いです。(那只猫很可爱。)" 
                         class="w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-700/20 focus:border-emerald-700 transition duration-200 text-stone-800 placeholder-stone-400 resize-none"></textarea>
                 </div>
 
@@ -224,6 +228,10 @@
                 <div class="flex items-center space-x-1 flex-shrink-0">
                     <button id="add-notebook-btn" onclick="openNewNotebookModal()" class="p-2 hover:bg-stone-100 rounded-xl text-emerald-800 transition" title="新建单词本">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
+                    </button>
+                    <!-- ✏️ 编辑(重命名)按钮 -->
+                    <button id="rename-notebook-btn" onclick="openRenameNotebookModal()" class="p-2 text-stone-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition" title="重命名当前单词本">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg>
                     </button>
                     <button id="delete-notebook-btn" onclick="openDeleteNotebookConfirm()" class="p-2 text-stone-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition" title="删除当前单词本">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
@@ -321,6 +329,51 @@
 
     </main>
 
+    <!-- ⚙️ AI 密钥配置与服务商切换 模态弹出框 -->
+    <div id="ai-settings-modal" class="fixed inset-0 bg-black/60 flex items-center justify-center hidden z-50 p-4 backdrop-blur-sm transition-all duration-300">
+        <div class="bg-white rounded-2xl border border-stone-200/80 p-6 w-full max-w-md shadow-2xl transform scale-95 transition-transform duration-200">
+            <h3 class="text-base font-bold text-stone-800 mb-4 flex items-center">
+                <span class="w-1.5 h-4 bg-indigo-700 rounded-full mr-2"></span>
+                AI 智能连接设置
+            </h3>
+            <p class="text-xs text-stone-500 mb-5 leading-relaxed">
+                您的密钥将安全存放于当前设备浏览器的沙盒中（localStorage），绝对不会上传至任何第三方服务器，请放心配置。
+            </p>
+            
+            <!-- 二选一服务商切换开关 -->
+            <div class="mb-5">
+                <label class="block text-xs font-bold text-stone-400 uppercase tracking-wider mb-2">当前激活的服务商</label>
+                <div class="grid grid-cols-2 gap-2 bg-stone-100 p-1 rounded-xl border border-stone-200/50">
+                    <label class="flex items-center justify-center py-2.5 rounded-lg cursor-pointer text-xs font-bold select-none border border-transparent transition has-[:checked]:bg-white has-[:checked]:text-emerald-800 has-[:checked]:shadow-sm text-stone-500">
+                        <input type="radio" name="ai-provider-toggle" value="gemini" class="hidden" checked>
+                        <span>Google Gemini</span>
+                    </label>
+                    <label class="flex items-center justify-center py-2.5 rounded-lg cursor-pointer text-xs font-bold select-none border border-transparent transition has-[:checked]:bg-white has-[:checked]:text-blue-700 has-[:checked]:shadow-sm text-stone-500">
+                        <input type="radio" name="ai-provider-toggle" value="deepseek" class="hidden">
+                        <span>DeepSeek API</span>
+                    </label>
+                </div>
+            </div>
+
+            <!-- Gemini Key 输入区 -->
+            <div class="space-y-1.5 mb-4">
+                <label class="block text-xs font-bold text-stone-600">Gemini API Key</label>
+                <input type="password" id="gemini-key-input" placeholder="输入 AIzaSy 开头的Google Ai Studio密钥..." class="w-full px-3 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 font-mono">
+            </div>
+
+            <!-- DeepSeek Key 输入区 -->
+            <div class="space-y-1.5 mb-6">
+                <label class="block text-xs font-bold text-stone-600">DeepSeek API Key</label>
+                <input type="password" id="deepseek-key-input" placeholder="输入 sk- 开头的DeepSeek密钥..." class="w-full px-3 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 font-mono">
+            </div>
+
+            <div class="flex justify-end space-x-2.5">
+                <button onclick="closeAiSettingsModal()" class="px-4 py-2 border border-stone-200 rounded-xl text-xs text-stone-500 hover:bg-stone-50 transition">取消</button>
+                <button onclick="saveAiSettings()" class="px-5 py-2 bg-stone-900 hover:bg-stone-800 text-white rounded-xl text-xs font-semibold transition shadow-sm">保存设置</button>
+            </div>
+        </div>
+    </div>
+
     <!-- ☁️ 云同步设置 侧边抽屉滑出面板 -->
     <div id="cloud-drawer" class="fixed inset-y-0 right-0 w-full sm:w-[420px] bg-white border-l border-stone-200 shadow-2xl z-50 transform translate-x-full transition-transform duration-300 ease-in-out flex flex-col hidden">
         <div class="p-5 border-b border-stone-100 flex justify-between items-center bg-blue-50/50">
@@ -353,12 +406,12 @@
             <div class="pt-4 space-y-3">
                 <button id="btn-sync-up" onclick="syncToCloud()" class="w-full py-3 bg-stone-800 hover:bg-stone-900 text-white rounded-xl font-bold text-sm transition shadow-md flex items-center justify-center space-x-2">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
-                    <span>☁️ ⬆️ 上传并覆盖至云端</span>
+                    <span> ⬆️ 上传并覆盖至云端</span>
                 </button>
                 
                 <button id="btn-sync-down" onclick="syncFromCloud()" class="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-sm transition shadow-md flex items-center justify-center space-x-2">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
-                    <span>☁️ ⬇️ 从云端拉取并恢复本地</span>
+                    <span>⬇️ 从云端拉取并恢复本地</span>
                 </button>
             </div>
             <div id="sync-status" class="text-center text-xs font-semibold py-2"></div>
@@ -366,12 +419,12 @@
     </div>
 
 
-    <!-- 🔍 离线词典 & 查词 侧边抽屉滑出面板 -->
+    <!-- 🔍 词典 & 查词 侧边抽屉滑出面板 -->
     <div id="dict-drawer" class="fixed inset-y-0 right-0 w-full sm:w-[420px] bg-white border-l border-stone-200 shadow-2xl z-50 transform translate-x-full transition-transform duration-300 ease-in-out flex flex-col justify-between hidden">
         <!-- 抽屉头部 -->
         <div class="p-5 border-b border-stone-100 flex justify-between items-center bg-stone-50">
             <div class="flex items-center space-x-2">
-                <span class="text-lg font-bold text-amber-800">🔍 离线查词工具</span>
+                <span class="text-lg font-bold text-amber-800">🔍 查词工具</span>
                 <span class="text-[10px] px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded border border-amber-200">IndexedDB 本地</span>
             </div>
             <button onclick="toggleDictionaryDrawer()" class="p-1 hover:bg-stone-200 rounded-lg text-stone-500 transition">
@@ -435,13 +488,30 @@
                 <span class="w-1.5 h-4 bg-emerald-700 rounded-full mr-2"></span>
                 新建单词分类
             </h3>
-            <p class="text-xs text-stone-500 mb-4">输入新单词本的主题名称（如：“迷宫饭”、“日常”、“考级”等）：</p>
+            <p class="text-xs text-stone-500 mb-4">输入新单词本的主题名称：</p>
             <input type="text" id="new-notebook-input" 
                 placeholder="例：迷宫饭" 
                 class="w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-700/20 focus:border-emerald-700 transition duration-200 text-stone-800 mb-5">
             <div class="flex justify-end space-x-3">
                 <button onclick="closeNewNotebookModal()" class="px-4 py-2 border border-stone-200 rounded-xl text-xs text-stone-500 hover:bg-stone-50 transition">取消</button>
                 <button onclick="submitNewNotebook()" class="px-5 py-2 bg-emerald-800 text-white rounded-xl text-xs font-semibold hover:bg-emerald-900 transition">确定创建</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 1.5 ✏️ 重命名单词本 - 自定义模态框 -->
+    <div id="rename-notebook-modal" class="fixed inset-0 bg-black/60 flex items-center justify-center hidden z-50 p-4 backdrop-blur-sm transition-all duration-300">
+        <div class="bg-white rounded-2xl border border-stone-200/80 p-6 w-full max-w-md shadow-2xl transform scale-95 transition-transform">
+            <h3 class="text-base font-bold text-stone-800 mb-4 flex items-center">
+                <span class="w-1.5 h-4 bg-blue-600 rounded-full mr-2"></span>
+                重命名当前单词本
+            </h3>
+            <p class="text-xs text-stone-500 mb-4">为 <strong id="rename-notebook-oldname" class="text-stone-700"></strong> 输入一个新的名称：</p>
+            <input type="text" id="rename-notebook-input" 
+                class="w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition duration-200 text-stone-800 mb-5">
+            <div class="flex justify-end space-x-3">
+                <button onclick="closeRenameNotebookModal()" class="px-4 py-2 border border-stone-200 rounded-xl text-xs text-stone-500 hover:bg-stone-50 transition">取消</button>
+                <button onclick="submitRenameNotebook()" class="px-5 py-2 bg-blue-600 text-white rounded-xl text-xs font-semibold hover:bg-blue-700 transition">确认改名</button>
             </div>
         </div>
     </div>
@@ -540,10 +610,10 @@
             "日常": [
                 {
                     id: "1",
-                    word: "一生[いっしょう]懸[けん]命[めい]",
-                    kana: "いっしょうけんめい",
-                    meaning: "拼命地，全力以赴地",
-                    example: "日本語を一生懸命勉強しています。(正在拼命地学日语。)",
+                    word: "昼[ひる]ご飯[はん]",
+                    kana: "ひるごはん",
+                    meaning: "午饭",
+                    example: "昼ご飯を食べると、眠くなる。(我一吃午饭就犯困。)",
                     mastered: false
                 },
                 {
@@ -551,7 +621,7 @@
                     word: "木漏[こも]れ日[び]",
                     kana: "",
                     meaning: "从树叶缝隙中漏出的日光（大自然治愈的瞬间）",
-                    example: "木漏れ日の下で、静かに本を読むのが至福の时です。(在树荫漏光下安静读书是极度幸福的时光。)",
+                    example: "木漏れ日の下で、静かに本を読むのが至福の時です。(在树荫漏光下安静读书是极度幸福的时光。)",
                     mastered: false
                 },
                 {
@@ -559,7 +629,7 @@
                     word: "猫[ねこ]",
                     kana: "ねこ",
                     meaning: "猫咪",
-                    example: "うち的猫は一日中ひなたぼっこをしています。(我家的猫一整天都在晒太阳。)",
+                    example: "うちの猫は一日中日向ぼっこをしています。(我家的猫一整天都在晒太阳。)",
                     mastered: false
                 }
             ],
@@ -587,10 +657,10 @@
         const preloadedDictionary = [
             { word: "美味しい", kana: "おいしい", meaning: "美味的，好吃的" },
             { word: "日本語", kana: "にほんご", meaning: "日语" },
-            { word: "一生懸命", kana: "いっしょうけんめい", meaning: "拼命地，全力以赴地" },
+            { word: "昼ご飯", kana: "ひるごはん", meaning: "午饭" },
             { word: "木漏れ日", kana: "こもれび", meaning: "从树叶缝隙中漏出的日光" },
             { word: "猫", kana: "ねこ", meaning: "猫" },
-            { word: "友達", kana: "ともだち", meaning: "朋友" },
+            { word: "朋友", kana: "ともだち", meaning: "朋友" },
             { word: "先生", kana: "せんせい", meaning: "老师" },
             { word: "可愛い", kana: "かわいい", meaning: "可爱的" },
             { word: "ありがとう", kana: "ありがとう", meaning: "谢谢" },
@@ -644,7 +714,7 @@
                 });
             });
 
-            // 顺带恢复上一次保存在本地的 GitHub Gist Token 状态
+            // 恢复上一次保存在本地的 GitHub Gist Token 状态
             const savedToken = localStorage.getItem('gist_token');
             const savedGistId = localStorage.getItem('gist_id');
             if (savedToken) document.getElementById('gist-token').value = savedToken;
@@ -854,6 +924,61 @@
             renderCards();
             showToast(`单词本【${newName}】创建成功！`);
         }
+
+        // ==========================================
+        // ✏️ 新增：重命名单词本功能
+        // ==========================================
+        window.openRenameNotebookModal = function() {
+            const modal = document.getElementById('rename-notebook-modal');
+            const input = document.getElementById('rename-notebook-input');
+            const oldNameSpan = document.getElementById('rename-notebook-oldname');
+            
+            oldNameSpan.innerText = activeNotebook;
+            input.value = activeNotebook; // 自动填入当前名字方便修改
+            
+            modal.classList.remove('hidden');
+            setTimeout(() => {
+                input.focus();
+                input.select(); // 全选文本，方便直接输入替换
+            }, 150);
+        }
+
+        window.closeRenameNotebookModal = function() {
+            const modal = document.getElementById('rename-notebook-modal');
+            modal.classList.add('hidden');
+        }
+
+        window.submitRenameNotebook = function() {
+            const input = document.getElementById('rename-notebook-input');
+            const newName = input.value.trim();
+            const oldName = activeNotebook;
+
+            if (!newName) {
+                showToast("新名字不能为空哦！");
+                return;
+            }
+            if (newName === oldName) {
+                closeRenameNotebookModal();
+                return; // 名字没变，直接关闭
+            }
+            if (notebooks[newName]) {
+                showToast("该单词本名称已存在，请换一个名字！");
+                return;
+            }
+
+            // 安全的数据迁移：将旧名称下的数组直接赋给新名称，并删除旧名称
+            notebooks[newName] = notebooks[oldName];
+            delete notebooks[oldName];
+            
+            activeNotebook = newName; // 切换当前焦点到新单词本
+            
+            saveData();
+            closeRenameNotebookModal();
+            renderNotebookTabs();
+            renderCards();
+            showToast(`已成功将单词本重命名为【${newName}】`);
+        }
+
 
         window.openDeleteNotebookConfirm = function() {
             const names = Object.keys(notebooks);
@@ -1193,7 +1318,59 @@
 
 
         // ==========================================
-        // ✨ 集成内置 Gemini API 智能假名匹配算法 (已修正 API 模型为通用稳定版)
+        // ⚙️ 新增：AI 弹窗面板管理与持久化逻辑 (本地持久化，防明文外泄)
+        // ==========================================
+        window.openAiSettingsModal = function() {
+            const modal = document.getElementById('ai-settings-modal');
+            
+            // 从内置沙盒加载已有配置并回显
+            const provider = localStorage.getItem('ai_provider') || 'gemini';
+            const geminiKey = localStorage.getItem('gemini_api_key') || '';
+            const deepseekKey = localStorage.getItem('deepseek_api_key') || '';
+            
+            document.getElementById('gemini-key-input').value = geminiKey;
+            document.getElementById('deepseek-key-input').value = deepseekKey;
+            
+            const toggles = document.getElementsByName('ai-provider-toggle');
+            for (let t of toggles) {
+                if (t.value === provider) {
+                    t.checked = true;
+                    break;
+                }
+            }
+            
+            modal.classList.remove('hidden');
+        }
+
+        window.closeAiSettingsModal = function() {
+            document.getElementById('ai-settings-modal').classList.add('hidden');
+        }
+
+        window.saveAiSettings = function() {
+            const geminiKey = document.getElementById('gemini-key-input').value.trim();
+            const deepseekKey = document.getElementById('deepseek-key-input').value.trim();
+            
+            let selectedProvider = 'gemini';
+            const toggles = document.getElementsByName('ai-provider-toggle');
+            for (let t of toggles) {
+                if (t.checked) {
+                    selectedProvider = t.value;
+                    break;
+                }
+            }
+            
+            // 数据封包存入 localStorage
+            localStorage.setItem('ai_provider', selectedProvider);
+            localStorage.setItem('gemini_api_key', geminiKey);
+            localStorage.setItem('deepseek_api_key', deepseekKey);
+            
+            closeAiSettingsModal();
+            showToast(`⚙️ AI服务商配置成功！当前激活：${selectedProvider === 'gemini' ? 'Google Gemini' : 'DeepSeek API'}`);
+        }
+
+
+        // ==========================================
+        // ✨ 改动：全新重构的智能多通道假名自适应匹配模块 (兼容 Gemini 与 DeepSeek 两种网络接口)
         // ==========================================
         async function fetchWithBackoff(url, options, retries = 5, delay = 1000) {
             for (let i = 0; i < retries; i++) {
@@ -1220,6 +1397,19 @@
                 return;
             }
 
+            // 1. 读取本地非明文密钥配置
+            const activeProvider = localStorage.getItem('ai_provider') || 'gemini';
+            const geminiKey = localStorage.getItem('gemini_api_key') || '';
+            const deepseekKey = localStorage.getItem('deepseek_api_key') || '';
+            
+            const currentToken = activeProvider === 'gemini' ? geminiKey : deepseekKey;
+
+            if (!currentToken) {
+                showToast(`⚠️ 请先点击右上角“⚙️ AI设置”配置您的 ${activeProvider === 'gemini' ? 'Gemini' : 'DeepSeek'} 密钥！`);
+                openAiSettingsModal();
+                return;
+            }
+
             const btnTextId = isEdit ? 'edit-ai-btn-text' : 'ai-btn-text';
             const btnSpinnerId = isEdit ? 'edit-ai-btn-spinner' : 'ai-btn-spinner';
             const btnId = isEdit ? 'edit-ai-parse-btn' : 'ai-parse-btn';
@@ -1232,51 +1422,78 @@
             btnSpinner.classList.remove('hidden');
             btnText.innerText = "匹配中...";
 
-            // ⚠️ 你的专属超长 Gemini API Key 已精准写入
-            const apiKey = "AIzaSyC0FFxS7qlmdOm7vZo1XP800Cgl9KY2Fzo"; 
-            // ⚠️ 模型名称已切换至最稳定、绝不 404 的版本
-            const model = "gemini-2.5-flash";
-            const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-
-            // 极其严苛的精准匹配假名 System Prompt (严格绝不生成例句、中文释义)
+            // 严苛的核心 System Prompt
             const systemPrompt = `你是一个非常专业且极致克制的日语研究助手。
 任务：接收用户输入的日语词汇，仅仅生成读音平假名，以及带汉字振假名括号的对齐文本。
-注意：不要尝试生成例句、不要生成中文解释。
+注意：不要尝试生成例句、不要生成中文解释。必须返回一个合法的 JSON 对象，不带有任何 Markdown 语法标记包裹。
 要求：
-1. [重要] 生成精准的“振假名括号对齐文本” (word_with_bracket) 中括号[ ]里的假名必须只标注在对应的日文汉字上，绝对不能黏连周围的平假名。
+1. 生成精准的“振假名括号对齐文本” (word_with_bracket) 中括号[ ]里的假名必须只标注在对应的日文汉字上，绝对不能黏连周围的平假名。
    - 示例: 输入 '日本語'，返回 '日本[にほん]語[ご]'。
    - 示例: 输入 '食べる'，返回 '食[た]べる' (假名 'べ' 和 'る' 不能塞进括号中)。
    - 示例: 输入 '美味しい'，返回 '美[お]味[い]しい'。`;
 
-            const payload = {
-                contents: [{ parts: [{ text: wordVal }] }],
-                systemInstruction: { parts: [{ text: systemPrompt }] },
-                generationConfig: {
-                    responseMimeType: "application/json",
-                    responseSchema: {
-                        type: "OBJECT",
-                        properties: {
-                            kana: { type: "STRING", description: "该词的纯平假名/片假名读音，如: にほんご" },
-                            word_with_bracket: { type: "STRING", description: "带精准括号振假名标注的词，如: 日本[にほん]語[ご]" }
-                        },
-                        required: ["kana", "word_with_bracket"]
-                    }
-                }
-            };
-
             try {
-                const result = await fetchWithBackoff(url, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
-                });
+                let url = "";
+                let fetchOptions = {};
 
-                const textJson = result.candidates?.[0]?.content?.parts?.[0]?.text;
-                if (!textJson) throw new Error("AI没有返回合法的JSON");
+                if (activeProvider === 'gemini') {
+                    // 通用稳定版 Gemini 模型请求管道
+                    const model = "gemini-2.5-flash";
+                    url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${currentToken}`;
+                    fetchOptions = {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            contents: [{ parts: [{ text: wordVal }] }],
+                            systemInstruction: { parts: [{ text: systemPrompt }] },
+                            generationConfig: {
+                                responseMimeType: "application/json",
+                                responseSchema: {
+                                    type: "OBJECT",
+                                    properties: {
+                                        kana: { type: "STRING", description: "该词的纯平假名/片假名读音" },
+                                        word_with_bracket: { type: "STRING", description: "带精准括号振假名标注的词" }
+                                    },
+                                    required: ["kana", "word_with_bracket"]
+                                }
+                            }
+                        })
+                    };
+                } else {
+                    // 付费级通用 DeepSeek 模型通用请求管道
+                    url = "https://api.deepseek.com/chat/completions";
+                    fetchOptions = {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${currentToken}`
+                        },
+                        body: JSON.stringify({
+                            model: "deepseek-v4-flash",
+                            messages: [
+                                { role: "system", content: systemPrompt },
+                                { role: "user", content: `请解析以下日语词汇，以标准 JSON 返回字段 'kana' 和 'word_with_bracket'。目标词汇：${wordVal}` }
+                            ],
+                            response_format: { type: "json_object" },
+                            stream: false
+                        })
+                    };
+                }
+
+                const responseData = await fetchWithBackoff(url, fetchOptions);
+                let textJson = "";
+
+                if (activeProvider === 'gemini') {
+                    textJson = responseData.candidates?.[0]?.content?.parts?.[0]?.text;
+                } else {
+                    textJson = responseData.choices?.[0]?.message?.content;
+                }
+
+                if (!textJson) throw new Error("AI未能输出合法的回包字段");
 
                 const data = JSON.parse(textJson);
 
-                // 仅填入单词括号化格式和纯假名
+                // 填入解耦后的文本框
                 if (isEdit) {
                     document.getElementById('edit-word').value = data.word_with_bracket;
                     document.getElementById('edit-kana').value = data.kana;
@@ -1285,9 +1502,10 @@
                     document.getElementById('input-kana').value = data.kana;
                 }
 
-                showToast("✨ 假名标注匹配成功！");
+                showToast(`✨ 使用 ${activeProvider === 'gemini' ? 'Gemini' : 'DeepSeek'} 智能适配完成！`);
             } catch (error) {
-                showToast("假名智能解析失败，请检查网络或稍后重试。");
+                console.error(error);
+                showToast("匹配出现问题，请确认密钥、用量或网络环境。");
             } finally {
                 btn.disabled = false;
                 btnSpinner.classList.add('hidden');
@@ -1319,7 +1537,6 @@
             };
         }
 
-        // 检测数据库内是否有数据，若没有则自动灌入默认初始精选词典
         function checkDictionaryEmpty() {
             const tx = db.transaction("dictionary", "readonly");
             const store = tx.objectStore("dictionary");
@@ -1334,13 +1551,11 @@
             };
         }
 
-        // 更新数据库标签状态
         function updateDictStatusLabel(count) {
             const label = document.getElementById('dict-db-status');
             label.innerHTML = `🟢 已加载 ${count} 个本地核心词`;
         }
 
-        // 向本地 IndexedDB 批量填充词典数据
         function importDictionaryData(dataArray, silent = false) {
             const tx = db.transaction("dictionary", "readwrite");
             const store = tx.objectStore("dictionary");
@@ -1367,7 +1582,6 @@
             };
         }
 
-        // 离线词典核心检索
         window.searchDictionary = function() {
             const searchVal = document.getElementById('dict-search-input').value.trim().toLowerCase();
             const resultsBox = document.getElementById('dict-results');
@@ -1407,7 +1621,6 @@
             };
         }
 
-        // 渲染词典查询结果区域
         function renderDictResults(results) {
             const resultsBox = document.getElementById('dict-results');
             resultsBox.classList.remove('hidden');
@@ -1434,7 +1647,6 @@
             }).join('');
         }
 
-        // 一键将离线词典结果填入单词表单输入框
         window.fillFromDictionary = function(word, kana, meaning) {
             document.getElementById('input-word').value = word;
             document.getElementById('input-kana').value = kana;
@@ -1444,7 +1656,6 @@
             showToast("已为你将词典结果一键填入上方添加表单！");
         }
 
-        // 外部联查
         window.openExternalSearch = function(site) {
             const query = document.getElementById('dict-search-input').value.trim() || document.getElementById('input-word').value.trim();
             if (!query) {
@@ -1465,7 +1676,6 @@
             window.open(url, '_blank');
         }
 
-        // 词典抽屉显示隐藏
         window.toggleDictionaryDrawer = function() {
             const drawer = document.getElementById('dict-drawer');
             if (drawer.classList.contains('hidden')) {
@@ -1483,7 +1693,7 @@
 
 
         // ==========================================
-        // ☁️ 核心：GitHub Gist 轻量云同步功能 (已补齐并加固网络状态重试)
+        // ☁️ 核心：GitHub Gist 轻量云同步功能
         // ==========================================
         window.openCloudSyncModal = function() {
             const drawer = document.getElementById('cloud-drawer');
@@ -1509,7 +1719,6 @@
             statusEl.className = `text-center text-xs font-semibold py-2 ${isError ? 'text-red-500' : 'text-emerald-600'}`;
         }
 
-        // ⬆️ 上传并覆盖至云端 (包含 Gist 创建与更新逻辑)
         window.syncToCloud = async function() {
             const token = document.getElementById('gist-token').value.trim();
             let gistId = document.getElementById('gist-id').value.trim();
@@ -1524,7 +1733,6 @@
             btn.innerHTML = `<span class="animate-spin mr-2">🌀</span>正在加密打包上传...`;
             updateSyncStatus("📡 正在连接 GitHub 服务器...");
 
-            // 提取当前所有数据并转为 JSON 字符串
             const payloadContent = JSON.stringify({
                 version: "1.0",
                 lastSync: new Date().toISOString(),
@@ -1545,7 +1753,6 @@
                 let url = 'https://api.github.com/gists';
                 let method = 'POST';
 
-                // 如果存在 Gist ID，则执行更新操作（PATCH）
                 if (gistId) {
                     url = `https://api.github.com/gists/${gistId}`;
                     method = 'PATCH';
@@ -1568,7 +1775,6 @@
 
                 const data = await response.json();
                 
-                // 如果是首次创建，自动把生成的 Gist ID 填入框内，并做本地缓存
                 if (!gistId) {
                     document.getElementById('gist-id').value = data.id;
                     gistId = data.id;
@@ -1588,7 +1794,6 @@
             }
         }
 
-        // ⬇️ 从云端拉取并恢复本地
         window.syncFromCloud = async function() {
             const token = document.getElementById('gist-token').value.trim();
             const gistId = document.getElementById('gist-id').value.trim();
@@ -1620,7 +1825,6 @@
 
                 const data = await response.json();
                 
-                // 解析获取到的文件内容
                 const fileObj = data.files["japanese_vocab_backup.json"];
                 if (!fileObj || !fileObj.content) {
                     throw new Error("在您的 Gist 房间里找不到备份数据文件");
@@ -1630,7 +1834,6 @@
                 
                 if (parsedData.notebooks) {
                     notebooks = parsedData.notebooks;
-                    // 确保当前活跃单词本存在
                     if (!notebooks[activeNotebook]) {
                         activeNotebook = Object.keys(notebooks)[0] || "日常";
                     }
@@ -1674,19 +1877,16 @@
             }
 
             // --- 智能防重复检查逻辑 ---
-            // 提取纯净的单词实体（自动剔除 AI 匹配生成的括号假名），实现精准查重
             const getCleanWord = (w) => w.replace(/([^\s\[\]]+)\[([^\]]+)\]/g, '$1');
             const cleanInputWord = getCleanWord(wordVal);
             
-            // 遍历当前单词本，寻找是否有重复
             const isDuplicate = notebooks[activeNotebook].some(card => getCleanWord(card.word) === cleanInputWord);
             
             if (isDuplicate) {
                 showToast(`⚠️ “${cleanInputWord}” 已存在于本册中，请勿重复添加！`);
-                wordInput.select(); // 自动选中重复的单词方便修改
-                return; // 立即终止添加流程
+                wordInput.select(); 
+                return; 
             }
-            // -----------------------------
 
             const newVocab = {
                 id: Date.now().toString(),
@@ -1707,7 +1907,7 @@
             }
             renderNotebookTabs();
 
-            e.target.reset(); // 清空表单
+            e.target.reset(); 
             wordInput.focus();
 
             showToast("成功添加词卡到当前单词本！");
@@ -1766,7 +1966,6 @@
 
             const dateStr = new Date().toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' });
             
-            // 构建 Markdown 标准三栏表格，支持例句精细渲染
             let mdContent = `# 📓 日语单词自测练习表 (${activeNotebook})\n\n`;
             mdContent += `- **所属单词本**: ${activeNotebook}\n`;
             mdContent += `- **导出日期**: ${dateStr}\n`;
@@ -1777,16 +1976,23 @@
             mdContent += `| :--- | :--- | :--- |\n`;
 
             currentList.forEach(item => {
-                // 1. 去除 HTML 尖括号，防止在部分 MD 解析器下冲突
                 let cleanWord = item.word.replace(/</g, "&lt;").replace(/>/g, "&gt;");
                 
-                // 2. 格式化第一栏：加粗单词，假名作为辅助斜体小字并换行
-                let wordCol = `**${cleanWord}**`;
-                if (item.kana && item.kana.trim() !== "") {
-                    wordCol += `<br>_(${item.kana.trim()})_`;
+                // 使用标准 HTML Ruby 语法，去除加粗，确保多平台稳定渲染
+                let formattedWord = cleanWord;
+                const bracketRegex = /([^\s\[\]\u3040-\u309f]+)\[([^\]]+)\]/g;
+                
+                if (bracketRegex.test(cleanWord)) {
+                    bracketRegex.lastIndex = 0; // 重置正则检索位置
+                    formattedWord = cleanWord.replace(bracketRegex, '<ruby>$1<rt>$2</rt></ruby>');
+                } else if (item.kana && item.kana.trim() !== "") {
+                    // 若无括号但有独立假名，则将整个词包裹
+                    let cleanKana = item.kana.trim().replace(/</g, "&lt;").replace(/>/g, "&gt;");
+                    formattedWord = `<ruby>${cleanWord}<rt>${cleanKana}</rt></ruby>`;
                 }
                 
-                // 3. 格式化第二栏：转义单元格管道符，例句以灰色小字附于释义下方
+                let wordCol = formattedWord; // 已去除加粗星号 **
+                
                 let cleanMeaning = item.meaning.replace(/\|/g, "\\|").replace(/</g, "&lt;").replace(/>/g, "&gt;");
                 let meaningCol = `${cleanMeaning}`;
                 if (item.example) {
@@ -1794,13 +2000,12 @@
                     meaningCol += `<br><span style="font-size: 0.85em; color: #78716c;">*例句: ${cleanExample}*</span>`;
                 }
 
-                // 4. 追加行数据
                 mdContent += `| ${wordCol} | ${meaningCol} |  |\n`;
             });
 
-            // 5. 封装 Blob 数据触发纯本地无沙盒拦截的安全流下载
             try {
-                const blob = new Blob([mdContent], { type: 'text/markdown;charset=utf-8;' });
+                // 新增 '\uFEFF' (UTF-8 BOM) 头，彻底解决 Windows 系统本地打开 MD 文件乱码的问题
+                const blob = new Blob(['\uFEFF' + mdContent], { type: 'text/markdown;charset=utf-8;' });
                 const url = URL.createObjectURL(blob);
                 const link = document.createElement("a");
                 link.href = url;
