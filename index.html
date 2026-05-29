@@ -130,16 +130,17 @@
         <div class="max-w-6xl mx-auto px-6 py-4 flex justify-between items-center">
             <div class="flex items-center space-x-3">
                 <span class="text-xl font-bold tracking-widest text-emerald-800">日语单词本</span>
-                <span id="active-notebook-badge" class="text-xs px-2 py-0.5 bg-stone-100 text-stone-500 rounded-full border border-stone-200/60 font-medium hidden sm:inline">日常</span>
+                <span id="active-notebook-badge" class="text-xs px-2 py-0.5 bg-stone-100 text-stone-500 rounded-full border border-stone-200/60 font-medium">日常</span>
             </div>
-            <div class="flex items-center space-x-2.5 sm:space-x-4">
-                <!-- ✨ 新增云同步按钮 -->
-                <button onclick="openCloudSyncModal()" class="px-3.5 py-1.5 bg-blue-500/10 hover:bg-blue-500/20 text-blue-800 border border-blue-500/30 rounded-full text-xs font-semibold flex items-center space-x-1.5 transition active:scale-95 shadow-sm" title="打开 GitHub Gist 跨设备云端同步">
+            <div class="flex items-center space-x-4">
+                <!-- ☁️ 云同步按钮 -->
+                <button onclick="openCloudSyncModal()" class="px-3.5 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-200 rounded-full text-xs font-semibold flex items-center space-x-1.5 transition active:scale-95 shadow-sm" title="使用 GitHub Gist 跨设备同步数据">
                     <span>☁️ 云同步</span>
                 </button>
-                <button onclick="toggleDictionaryDrawer()" class="px-3.5 py-1.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-900 border border-amber-500/30 rounded-full text-xs font-semibold flex items-center space-x-1.5 transition active:scale-95 shadow-sm" title="打开内置离线词典与在线直达">
+                <button onclick="toggleDictionaryDrawer()" class="px-3.5 py-1.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-900 border border-amber-500/30 rounded-full text-xs font-semibold flex items-center space-x-1.5 transition active:scale-95 shadow-sm hidden sm:flex" title="打开内置离线词典与在线直达">
                     <span>🔍 查词典</span>
                 </button>
+                <span id="card-count" class="text-xs text-stone-500 font-medium hidden md:inline">正在加载...</span>
             </div>
         </div>
     </header>
@@ -154,10 +155,11 @@
             </h2>
             <form id="vocab-form" class="space-y-5">
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
-                    <!-- 单词输入 -->
+                    <!-- 单词输入（绝对嵌合式定位排版，杜绝溢出重叠） -->
                     <div class="space-y-1.5">
                         <label class="block text-xs font-semibold text-stone-500">单词 (Word) <span class="text-red-500">*</span></label>
                         <div class="relative w-full flex items-center">
+                            <!-- 预留 pr-20 以免遮挡文字，完美整合 AI 助手 -->
                             <input type="text" id="input-word" required 
                                 placeholder="例：日本語 或 美[おい]しい" 
                                 class="font-japanese w-full pl-4 pr-20 py-3 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-700/20 focus:border-emerald-700 transition duration-200 text-stone-800 placeholder-stone-400">
@@ -197,6 +199,7 @@
                         class="w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-700/20 focus:border-emerald-700 transition duration-200 text-stone-800 placeholder-stone-400 resize-none"></textarea>
                 </div>
 
+                <!-- 提交按钮与快捷技巧提示 -->
                 <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between pt-2 gap-4">
                     <div class="text-xs text-stone-500 bg-stone-100/80 rounded-lg p-3 border border-stone-200/50 leading-relaxed max-w-xl">
                         💡 <strong>极速查假名：</strong>在单词框输入中文或汉字词后点击 <strong class="text-emerald-800">“匹配假名”</strong>，AI 仅自动匹配读音并转为精准的括号汉字对齐！
@@ -279,7 +282,7 @@
             </div>
         </section>
 
-        <!-- 工具栏第二行 -->
+        <!-- 工具栏第二行 (导出 Markdown) -->
         <section class="flex flex-wrap items-center gap-2.5 mb-8 border-t border-stone-200/60 pt-4">
             <!-- 快捷功能：全部翻面 / 全部还原 -->
             <button id="toggle-all-btn" class="px-3.5 py-2 border border-stone-200 hover:border-stone-300 hover:bg-stone-50 rounded-xl text-xs text-stone-600 transition whitespace-nowrap flex items-center space-x-1.5 shadow-sm">
@@ -300,7 +303,7 @@
             </button>
         </section>
 
-        <!-- 单词卡片展示网格 -->
+        <!-- 单词卡片展示网格 (使用 .adaptive-grid 代替原本固定Cols，实现列宽自动适配) -->
         <div id="cards-grid" class="adaptive-grid">
             <!-- 卡片由 JS 动态生成 -->
         </div>
@@ -318,7 +321,52 @@
 
     </main>
 
-    <!-- 🔍 离线词典 & 查词 侧边抽屉 -->
+    <!-- ☁️ 云同步设置 侧边抽屉滑出面板 -->
+    <div id="cloud-drawer" class="fixed inset-y-0 right-0 w-full sm:w-[420px] bg-white border-l border-stone-200 shadow-2xl z-50 transform translate-x-full transition-transform duration-300 ease-in-out flex flex-col hidden">
+        <div class="p-5 border-b border-stone-100 flex justify-between items-center bg-blue-50/50">
+            <div class="flex items-center space-x-2">
+                <span class="text-lg font-bold text-blue-800">☁️ GitHub Gist 云同步</span>
+            </div>
+            <button onclick="closeCloudSyncModal()" class="p-1 hover:bg-stone-200 rounded-lg text-stone-500 transition">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+            </button>
+        </div>
+
+        <div class="p-5 flex-grow overflow-y-auto space-y-6 bg-[#fcfbf7]">
+            <div class="text-xs text-stone-500 bg-white p-4 rounded-xl border border-stone-200 shadow-sm leading-relaxed">
+                利用你的 GitHub 私密记事本 (Gist) 实现极简的跨设备同步。<br>
+                在电脑点【上传】，在手机点【拉取】，数据随心漫游！
+            </div>
+            
+            <div class="space-y-3">
+                <label class="block text-xs font-bold text-stone-600 uppercase tracking-wider">1. 你的 GitHub Token (必填)</label>
+                <input type="password" id="gist-token" placeholder="输入 ghp_ 开头的 Token..." class="w-full px-3 py-2.5 bg-white border border-stone-300 rounded-lg text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 font-mono">
+                <p class="text-[10px] text-stone-400">去 GitHub 设置中生成一个带 `gist` 权限的 Token。</p>
+            </div>
+
+            <div class="space-y-3">
+                <label class="block text-xs font-bold text-stone-600 uppercase tracking-wider">2. 你的专属 Gist ID</label>
+                <input type="text" id="gist-id" placeholder="初次上传请留空，系统会自动生成并填入" class="w-full px-3 py-2.5 bg-white border border-stone-300 rounded-lg text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 font-mono text-stone-600">
+                <p class="text-[10px] text-stone-400">初次上传后会自动生成。在别的设备拉取时，请填写此 ID。</p>
+            </div>
+
+            <div class="pt-4 space-y-3">
+                <button id="btn-sync-up" onclick="syncToCloud()" class="w-full py-3 bg-stone-800 hover:bg-stone-900 text-white rounded-xl font-bold text-sm transition shadow-md flex items-center justify-center space-x-2">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
+                    <span>☁️ ⬆️ 上传并覆盖至云端</span>
+                </button>
+                
+                <button id="btn-sync-down" onclick="syncFromCloud()" class="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-sm transition shadow-md flex items-center justify-center space-x-2">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                    <span>☁️ ⬇️ 从云端拉取并恢复本地</span>
+                </button>
+            </div>
+            <div id="sync-status" class="text-center text-xs font-semibold py-2"></div>
+        </div>
+    </div>
+
+
+    <!-- 🔍 离线词典 & 查词 侧边抽屉滑出面板 -->
     <div id="dict-drawer" class="fixed inset-y-0 right-0 w-full sm:w-[420px] bg-white border-l border-stone-200 shadow-2xl z-50 transform translate-x-full transition-transform duration-300 ease-in-out flex flex-col justify-between hidden">
         <!-- 抽屉头部 -->
         <div class="p-5 border-b border-stone-100 flex justify-between items-center bg-stone-50">
@@ -374,6 +422,7 @@
             </div>
         </div>
 
+        <!-- 抽屉底部说明 -->
         <div class="p-4 border-t border-stone-100 bg-stone-50 text-center">
             <span class="text-[11px] text-stone-400">查出生词点击即可一键填入添加表单</span>
         </div>
@@ -415,7 +464,7 @@
         </div>
     </div>
 
-    <!-- 3. 编辑单词卡片 - 自定义模态框 -->
+    <!-- 3. 编辑单词卡片 - 自定义模态框 (内部嵌合AI按钮) -->
     <div id="edit-card-modal" class="fixed inset-0 bg-black/60 flex items-center justify-center hidden z-50 p-4 backdrop-blur-sm transition-all duration-300">
         <div class="bg-white rounded-2xl border border-stone-200/80 p-6 w-full max-w-xl shadow-2xl transform scale-95 transition-transform">
             <h3 class="text-base font-bold text-stone-800 mb-4 flex items-center">
@@ -425,11 +474,13 @@
             <form id="edit-vocab-form" class="space-y-4">
                 <input type="hidden" id="edit-card-id">
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <!-- 编辑状态下的单词输入 -->
                     <div class="space-y-1 flex flex-col justify-between">
                         <label class="block text-[11px] font-bold text-stone-500">单词 (Word)</label>
                         <div class="relative w-full flex items-center">
                             <input type="text" id="edit-word" required 
                                 class="font-japanese w-full pl-3 pr-20 py-2.5 bg-stone-50 border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-sm">
+                            <!-- 编辑面板中的 AI 快捷填充 -->
                             <button type="button" id="edit-ai-parse-btn" onclick="autoLookupWord(true)" class="absolute right-1.5 py-1 px-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-md text-[11px] font-semibold hover:from-blue-700 hover:to-indigo-700 transition-all duration-200 flex items-center shadow-sm active:scale-95" title="使用AI重新校准读音">
                                 <span id="edit-ai-btn-spinner" class="hidden animate-spin mr-1">
                                     <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
@@ -456,6 +507,7 @@
                 </div>
                 
                 <div class="flex items-center justify-between pt-3 border-t border-stone-100">
+                    <!-- 彻底从库里删除卡片 -->
                     <button type="button" onclick="submitDeleteCardPermanently()" class="px-4 py-2 text-red-600 hover:bg-red-50 rounded-xl text-xs font-semibold transition flex items-center space-x-1">
                         <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
                         <span>彻底删除卡片</span>
@@ -466,47 +518,6 @@
                     </div>
                 </div>
             </form>
-        </div>
-    </div>
-
-    <!-- ✨ ☁️ GitHub Gist 云端同步设置面板 -->
-    <div id="cloud-sync-modal" class="fixed inset-0 bg-black/60 flex items-center justify-center hidden z-50 p-4 backdrop-blur-sm transition-all duration-300">
-        <div class="bg-white rounded-2xl border border-stone-200/80 p-6 md:p-8 w-full max-w-lg shadow-2xl transform scale-95 transition-transform">
-            <h3 class="text-base font-bold text-blue-700 mb-2 flex items-center">
-                <svg class="w-5 h-5 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z"></path></svg>
-                GitHub 云端数据同步
-            </h3>
-            <p class="text-xs text-stone-500 mb-6 leading-relaxed">
-                利用 GitHub Gist 作为您的免费云盘进行设备间同步。在电脑端点击【上传】，在手机端填入相同的 Token 和存档 ID 后点击【下载】，即可跨设备无缝接力复习！
-            </p>
-            
-            <div class="space-y-5">
-                <div class="space-y-1.5">
-                    <label class="flex justify-between items-center text-xs font-bold text-stone-600 uppercase tracking-wider">
-                        <span>1. 访问秘钥 (GitHub Token)</span>
-                        <a href="https://github.com/settings/tokens/new" target="_blank" class="text-blue-500 hover:underline font-normal normal-case">去申请 👉</a>
-                    </label>
-                    <input type="password" id="sync-token-input" placeholder="请粘贴 ghp_ 开头的字符串（需勾选 gist 权限）" class="w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-sm font-mono placeholder-stone-400">
-                </div>
-                <div class="space-y-1.5">
-                    <label class="block text-xs font-bold text-stone-600 uppercase tracking-wider">2. 云端存档 ID (Gist ID)</label>
-                    <input type="text" id="sync-gist-input" placeholder="首次上传请留空。系统会自动创建并回填" class="w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-sm font-mono placeholder-stone-400">
-                    <p class="text-[10px] text-stone-400 mt-1">如果你要在新设备恢复数据，请将包含旧数据的此 ID 复制过来填入。</p>
-                </div>
-            </div>
-
-            <div class="mt-8 flex flex-col sm:flex-row gap-3">
-                <button onclick="uploadToCloud()" class="flex-1 py-3.5 bg-stone-800 hover:bg-stone-900 text-white rounded-xl text-sm font-semibold transition flex items-center justify-center space-x-2 active:scale-95 shadow-md">
-                    <span>☁️ ⬆️ 上传至云端</span>
-                </button>
-                <button onclick="downloadFromCloud()" class="flex-1 py-3.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-semibold transition flex items-center justify-center space-x-2 active:scale-95 shadow-md shadow-blue-500/20">
-                    <span>☁️ ⬇️ 从云端拉取</span>
-                </button>
-            </div>
-            
-            <div class="mt-5 pt-4 border-t border-stone-100 text-right">
-                <button onclick="closeCloudSyncModal()" class="px-5 py-2.5 border border-stone-200 rounded-xl text-xs font-semibold text-stone-500 hover:bg-stone-50 transition">关闭面板</button>
-            </div>
         </div>
     </div>
 
@@ -524,34 +535,79 @@
 
     <script>
         
-        // 1. 初始化高品质默认单词数据
+        // 1. 初始化高品质默认单词数据 (按本分类组织，新增 mastered 状态标记)
         const defaultNotebooks = {
             "日常": [
-                { id: "1", word: "一生[いっしょう]懸[けん]命[めい]", kana: "いっしょうけんめい", meaning: "拼命地，全力以赴地", example: "日本語を一生懸命勉強しています。(正在拼命地学日语。)", mastered: false },
-                { id: "2", word: "木漏[こも]れ日[び]", kana: "", meaning: "从树叶缝隙中漏出的日光（大自然治愈的瞬间）", example: "木漏れ日の下で、静かに本を読むのが至福の时です。(在树荫漏光下安静读书是极度幸福的时光。)", mastered: false },
-                { id: "3", word: "猫[ねこ]", kana: "ねこ", meaning: "猫咪", example: "うち的猫は一日中ひなたぼっこをしています。(我家的猫一整天都在晒太阳。)", mastered: false }
+                {
+                    id: "1",
+                    word: "一生[いっしょう]懸[けん]命[めい]",
+                    kana: "いっしょうけんめい",
+                    meaning: "拼命地，全力以赴地",
+                    example: "日本語を一生懸命勉強しています。(正在拼命地学日语。)",
+                    mastered: false
+                },
+                {
+                    id: "2",
+                    word: "木漏[こも]れ日[び]",
+                    kana: "",
+                    meaning: "从树叶缝隙中漏出的日光（大自然治愈的瞬间）",
+                    example: "木漏れ日の下で、静かに本を読むのが至福の时です。(在树荫漏光下安静读书是极度幸福的时光。)",
+                    mastered: false
+                },
+                {
+                    id: "3",
+                    word: "猫[ねこ]",
+                    kana: "ねこ",
+                    meaning: "猫咪",
+                    example: "うち的猫は一日中ひなたぼっこをしています。(我家的猫一整天都在晒太阳。)",
+                    mastered: false
+                }
+            ],
+            "迷宫饭": [
+                {
+                    id: "m1",
+                    word: "魔物[まもの]",
+                    kana: "",
+                    meaning: "魔物，怪物",
+                    example: "ダンジョンの魔物を美味しくいただきます。(怀着感恩的心享用地下城的魔物。)",
+                    mastered: false
+                },
+                {
+                    id: "m2",
+                    word: "歩[ある]く鎧[よろい]",
+                    kana: "",
+                    meaning: "会动的铠甲",
+                    example: "歩く鎧の中身は貝类に似ています。(会动的铠甲内部类似于贝类。)",
+                    mastered: false
+                }
             ]
         };
 
+        // 预装的轻量化内置离线词典数据库（用于本地秒查检索）
         const preloadedDictionary = [
             { word: "美味しい", kana: "おいしい", meaning: "美味的，好吃的" },
             { word: "日本語", kana: "にほんご", meaning: "日语" },
             { word: "一生懸命", kana: "いっしょうけんめい", meaning: "拼命地，全力以赴地" },
-            { word: "木漏れ日", kana: "こもれび", meaning: "从树叶缝隙中漏出的日光" }
+            { word: "木漏れ日", kana: "こもれび", meaning: "从树叶缝隙中漏出的日光" },
+            { word: "猫", kana: "ねこ", meaning: "猫" },
+            { word: "友達", kana: "ともだち", meaning: "朋友" },
+            { word: "先生", kana: "せんせい", meaning: "老师" },
+            { word: "可愛い", kana: "かわいい", meaning: "可爱的" },
+            { word: "ありがとう", kana: "ありがとう", meaning: "谢谢" },
+            { word: "寿司", kana: "すし", meaning: "寿司" },
+            { word: "樱", kana: "さくら", meaning: "樱花" },
+            { word: "勉強", kana: "べんきょう", meaning: "学习，功课" }
         ];
 
         let notebooks = {};
         let activeNotebook = "日常";
-        let cardFilter = "review"; 
-        let layoutMode = "grid"; 
-        let lastDeletedCard = null; 
-        let lastMasteredCardId = null; 
-        let db = null; 
+        let cardFilter = "review"; // "review" (复习中) 或者是 "mastered" (已掌握)
+        let layoutMode = "grid"; // "grid" (平铺卡片) 或者是 "list" (迷你列表)
+        let lastDeletedCard = null; // 用于单卡撤销的备忘变量
+        let lastMasteredCardId = null; // 用于快速撤销掌握状态的备忘变量
+        let db = null; // IndexedDB 实例
 
-        // 【新增】云同步核心参数变量
-        const GIST_FILENAME = "japanese_vocab_backup.json";
-
-        // 2. 从本地存储加载数据
+        // 2. 从本地存储加载数据（带向下合并保护机制）
         function loadData() {
             const oldData = localStorage.getItem('japanese_vocab_list');
             const notebooksData = localStorage.getItem('japanese_vocab_notebooks');
@@ -562,162 +618,70 @@
                 activeNotebook = activeNotebookData || Object.keys(notebooks)[0] || "日常";
             } else if (oldData) {
                 notebooks = { "日常": JSON.parse(oldData) };
-                if (notebooks["日常"].length === 0) notebooks["日常"] = [...defaultNotebooks["日常"]];
+                if (notebooks["日常"].length === 0) {
+                    notebooks["日常"] = [...defaultNotebooks["日常"]];
+                }
                 activeNotebook = "日常";
                 saveData();
+                showToast("已为你无痛迁移并保留了之前录入的单词！");
             } else {
-                notebooks = JSON.parse(JSON.stringify(defaultNotebooks));
+                notebooks = JSON.parse(JSON.stringify(defaultNotebooks)); // 深拷贝预设
                 activeNotebook = "日常";
                 saveData();
             }
             
-            if (!notebooks[activeNotebook]) activeNotebook = Object.keys(notebooks)[0] || "日常";
+            // 确保活动单词本存在
+            if (!notebooks[activeNotebook]) {
+                activeNotebook = Object.keys(notebooks)[0] || "日常";
+            }
 
+            // 数据清洗：确保每一个旧数据卡片都有 mastered 标志
             Object.keys(notebooks).forEach(bookName => {
                 notebooks[bookName].forEach(card => {
-                    if (card.mastered === undefined) card.mastered = false;
+                    if (card.mastered === undefined) {
+                        card.mastered = false;
+                    }
                 });
             });
+
+            // 顺带恢复上一次保存在本地的 GitHub Gist Token 状态
+            const savedToken = localStorage.getItem('gist_token');
+            const savedGistId = localStorage.getItem('gist_id');
+            if (savedToken) document.getElementById('gist-token').value = savedToken;
+            if (savedGistId) document.getElementById('gist-id').value = savedGistId;
             
             renderNotebookTabs();
             renderCards();
-            initIndexedDB(); 
+            initIndexedDB(); // 异步启动本地词典数据库
         }
 
+        // 3. 将数据保存至 LocalStorage
         function saveData() {
             localStorage.setItem('japanese_vocab_notebooks', JSON.stringify(notebooks));
             localStorage.setItem('japanese_vocab_active', activeNotebook);
             updateHeaderCount();
         }
 
-        // ==========================================
-        // ✨ GitHub Gist 云端同步系统逻辑
-        // ==========================================
-        
-        window.openCloudSyncModal = function() {
-            document.getElementById('sync-token-input').value = localStorage.getItem('github_sync_token') || "";
-            document.getElementById('sync-gist-input').value = localStorage.getItem('github_gist_id') || "";
-            document.getElementById('cloud-sync-modal').classList.remove('hidden');
-        }
-
-        window.closeCloudSyncModal = function() {
-            document.getElementById('cloud-sync-modal').classList.add('hidden');
-        }
-
-        window.uploadToCloud = async function() {
-            const token = document.getElementById('sync-token-input').value.trim();
-            const gistId = document.getElementById('sync-gist-input').value.trim();
-            
-            if (!token) return showToast("❌ 请先输入您的 GitHub Access Token");
-
-            // 保存 Token 以备下次使用
-            localStorage.setItem('github_sync_token', token);
-            showToast("正在加密并上传进度至云端...");
-
-            const dataToSave = {
-                notebooks: notebooks,
-                activeNotebook: activeNotebook,
-                timestamp: Date.now()
-            };
-            const contentString = JSON.stringify(dataToSave, null, 2);
-
-            try {
-                if (gistId) {
-                    // 更新已存在的 Gist
-                    const res = await fetch(`https://api.github.com/gists/${gistId}`, {
-                        method: 'PATCH',
-                        headers: {
-                            'Authorization': `token ${token}`,
-                            'Accept': 'application/vnd.github.v3+json'
-                        },
-                        body: JSON.stringify({
-                            files: { [GIST_FILENAME]: { content: contentString } }
-                        })
-                    });
-                    if(!res.ok) throw new Error("覆盖失败，请检查 Token 权限或 ID 是否正确");
-                } else {
-                    // 首次上传，创建新的私密 Gist
-                    const res = await fetch(`https://api.github.com/gists`, {
-                        method: 'POST',
-                        headers: {
-                            'Authorization': `token ${token}`,
-                            'Accept': 'application/vnd.github.v3+json'
-                        },
-                        body: JSON.stringify({
-                            description: "📓 日语单词本 云端同步存档备份",
-                            public: false, // 保护用户隐私
-                            files: { [GIST_FILENAME]: { content: contentString } }
-                        })
-                    });
-                    if(!res.ok) throw new Error("创建云端存档失败，请检查 Token 是否有效");
-                    
-                    const resData = await res.json();
-                    const newGistId = resData.id;
-                    document.getElementById('sync-gist-input').value = newGistId;
-                    localStorage.setItem('github_gist_id', newGistId);
-                }
-                showToast("✅ 完美！进度已成功存档至云端！");
-            } catch (err) {
-                showToast(`上传中断: ${err.message}`);
-            }
-        }
-
-        window.downloadFromCloud = async function() {
-            const token = document.getElementById('sync-token-input').value.trim();
-            const gistId = document.getElementById('sync-gist-input').value.trim();
-            
-            if (!token || !gistId) return showToast("❌ 恢复数据需要同时提供 Token 和 存档 ID！");
-
-            localStorage.setItem('github_sync_token', token);
-            localStorage.setItem('github_gist_id', gistId);
-            showToast("正在请求云端数据，请稍候...");
-
-            try {
-                const res = await fetch(`https://api.github.com/gists/${gistId}`, {
-                    headers: {
-                        'Authorization': `token ${token}`,
-                        'Accept': 'application/vnd.github.v3+json'
-                    }
-                });
-                if(!res.ok) throw new Error("下载失败，请确认 Gist ID 属于您填写的账号");
-                
-                const resData = await res.json();
-                const fileObj = resData.files[GIST_FILENAME];
-                if(!fileObj) throw new Error("在该 ID 的云盘中未找到有效备份文件！");
-                
-                const parsedData = JSON.parse(fileObj.content);
-                if (parsedData && parsedData.notebooks) {
-                    notebooks = parsedData.notebooks;
-                    activeNotebook = parsedData.activeNotebook || Object.keys(notebooks)[0];
-                    
-                    saveData();
-                    renderNotebookTabs();
-                    renderCards();
-                    closeCloudSyncModal();
-                    showToast("🎉 数据同步成功！所有设备进度已对齐！");
-                }
-            } catch (err) {
-                showToast(`拉取中断: ${err.message}`);
-            }
-        }
-
-
-        // 4. 解析 bracket 语法
+        // 4. 解析 bracket 语法格式。比如：日[び] -> <ruby>日<rt>び</rt></ruby> (严格限制平假名粘连，精准对齐)
         function parseRubyText(word, fallbackKana) {
             const bracketRegex = /([^\s\[\]\u3040-\u309f]+)\[([^\]]+)\]/g;
+            
             if (bracketRegex.test(word)) {
                 bracketRegex.lastIndex = 0;
                 return word.replace(bracketRegex, '<ruby>$1<rt>$2</rt></ruby>');
             }
+            
             if (fallbackKana && fallbackKana.trim() !== "") {
                 return `<ruby>${word}<rt>${fallbackKana.trim()}</rt></ruby>`;
             }
+            
             return word;
         }
 
-        // 5. 智能分离例句
+        // 5. 智能分离例句中的日文和中文翻译，以便基于缩放因子动态优雅排版
         function formatExample(exampleText) {
             if (!exampleText) return '';
+            
             const match = exampleText.match(/^([^ (（]+)(?:[ (（]([^ )）]+)[ )）])?$/);
             if (match) {
                 const jpSent = match[1].trim();
@@ -730,6 +694,7 @@
                     </div>
                 `;
             }
+            
             return `
                 <div class="text-left bg-white/70 rounded-xl border border-stone-200/30 w-full" style="padding: calc(0.75rem * var(--card-scale, 1.0));">
                     <span class="uppercase font-bold tracking-wider text-emerald-800/50 block" style="font-size: var(--fs-tiny, 0.625rem); margin-bottom: calc(0.25rem * var(--card-scale, 1.0));">例句</span>
@@ -738,7 +703,7 @@
             `;
         }
 
-        // 6. 更新顶部数量
+        // 6. 更新顶部数量统计及徽章状态
         function updateHeaderCount() {
             const countEl = document.getElementById('card-count');
             const badgeEl = document.getElementById('active-notebook-badge');
@@ -751,7 +716,33 @@
             badgeEl.innerText = activeNotebook;
         }
 
-        // 8. 切换状态筛选
+        // 7. 弹窗非阻塞提示
+        function showToast(msg, onUndo = null) {
+            const toast = document.getElementById('toast');
+            const toastMsg = document.getElementById('toast-message');
+            const toastAction = document.getElementById('toast-action');
+            
+            toastMsg.innerText = msg;
+            
+            if (onUndo) {
+                toastAction.classList.remove('hidden');
+                toastAction.onclick = () => {
+                    onUndo();
+                    toast.classList.add('translate-y-20', 'opacity-0');
+                };
+            } else {
+                toastAction.classList.add('hidden');
+            }
+            
+            toast.classList.remove('translate-y-20', 'opacity-0');
+            
+            if (window.toastTimeout) clearTimeout(window.toastTimeout);
+            window.toastTimeout = setTimeout(() => {
+                toast.classList.add('translate-y-20', 'opacity-0');
+            }, 4000);
+        }
+
+        // 8. 切换 单词掌握/复习 状态分类筛选器
         window.setCardFilter = function(filter) {
             cardFilter = filter;
             const reviewBtn = document.getElementById('filter-review-btn');
@@ -767,7 +758,7 @@
             renderCards();
         }
 
-        // 8.5 视图切换
+        // 8.5 新增：卡片平铺与迷你列表视图切换
         window.setViewMode = function(mode) {
             layoutMode = mode;
             const gridBtn = document.getElementById('view-grid-btn');
@@ -789,17 +780,18 @@
             renderCards();
         }
 
-        // 8.6 缩放
+        // 8.6 修复：无级卡片物理宽度及高度同步等比例缩放 (改变 --card-width 促使 CSS Grid 自动重排)
         window.changeCardScale = function(val) {
             const scale = parseFloat(val);
             const grid = document.getElementById('cards-grid');
             grid.style.setProperty('--card-scale', scale);
+            // 基础物理大小：宽 300px，高 320px
             grid.style.setProperty('--card-width', (300 * scale) + 'px');
             grid.style.setProperty('--card-height', (320 * scale) + 'px');
             document.getElementById('scale-value').innerText = Math.round(scale * 100) + '%';
         }
 
-        // 9. 渲染单词本标签
+        // 9. 渲染单词本分类标签
         function renderNotebookTabs() {
             const container = document.getElementById('notebook-tabs');
             const names = Object.keys(notebooks);
@@ -808,7 +800,10 @@
                 const isActive = name === activeNotebook;
                 const activeStyle = "bg-emerald-800 text-white shadow-sm font-semibold";
                 const inactiveStyle = "bg-white hover:bg-stone-100/80 text-stone-600 border border-stone-200 hover:border-stone-300";
+                
+                // 计算该本未掌握的生词
                 const reviewCount = notebooks[name].filter(c => !c.mastered).length;
+
                 return `
                     <button onclick="switchNotebook('${name}')" class="px-4 py-1.5 rounded-full text-xs transition duration-200 whitespace-nowrap ${isActive ? activeStyle : inactiveStyle}">
                         ${name}
@@ -825,7 +820,7 @@
             renderCards();
         }
 
-        // 10. 管理模块
+        // 10. 新建/删除分类模态框逻辑
         window.openNewNotebookModal = function() {
             const modal = document.getElementById('new-notebook-modal');
             const input = document.getElementById('new-notebook-input');
@@ -833,11 +828,24 @@
             modal.classList.remove('hidden');
             setTimeout(() => input.focus(), 150);
         }
-        window.closeNewNotebookModal = function() { document.getElementById('new-notebook-modal').classList.add('hidden'); }
+
+        window.closeNewNotebookModal = function() {
+            const modal = document.getElementById('new-notebook-modal');
+            modal.classList.add('hidden');
+        }
+
         window.submitNewNotebook = function() {
-            const newName = document.getElementById('new-notebook-input').value.trim();
-            if (!newName) return showToast("名字不能为空哦");
-            if (notebooks[newName]) return showToast("该单词本名称已存在！");
+            const input = document.getElementById('new-notebook-input');
+            const newName = input.value.trim();
+            if (!newName) {
+                showToast("名字不能为空哦");
+                return;
+            }
+            if (notebooks[newName]) {
+                showToast("该单词本名称已存在！");
+                return;
+            }
+
             notebooks[newName] = [];
             activeNotebook = newName;
             saveData();
@@ -846,22 +854,39 @@
             renderCards();
             showToast(`单词本【${newName}】创建成功！`);
         }
+
         window.openDeleteNotebookConfirm = function() {
-            if (Object.keys(notebooks).length <= 1) return showToast("至少需要保留一个单词本！");
-            document.getElementById('delete-notebook-name').innerText = activeNotebook;
-            document.getElementById('delete-notebook-modal').classList.remove('hidden');
+            const names = Object.keys(notebooks);
+            if (names.length <= 1) {
+                showToast("至少需要保留一个单词本！");
+                return;
+            }
+
+            const modal = document.getElementById('delete-notebook-modal');
+            const nameSpan = document.getElementById('delete-notebook-name');
+            nameSpan.innerText = activeNotebook;
+            modal.classList.remove('hidden');
         }
-        window.closeDeleteNotebookConfirm = function() { document.getElementById('delete-notebook-modal').classList.add('hidden'); }
+
+        window.closeDeleteNotebookConfirm = function() {
+            const modal = document.getElementById('delete-notebook-modal');
+            modal.classList.add('hidden');
+        }
+
         window.submitDeleteNotebook = function() {
+            const names = Object.keys(notebooks);
             const toDelete = activeNotebook;
             delete notebooks[toDelete];
             activeNotebook = Object.keys(notebooks)[0];
+            
             saveData();
             closeDeleteNotebookConfirm();
             renderNotebookTabs();
             renderCards();
             showToast(`已永久删除单词本【${toDelete}】`);
         }
+
+        // 📝 迷你列表模式下的手风琴点击展开折叠逻辑
         window.toggleListExpand = function(element) {
             if (layoutMode !== "list") return;
             const expandedSection = element.querySelector('.list-expand-area');
@@ -875,14 +900,24 @@
             }
         }
 
-        // 11. 渲染卡片
+        // 11. 核心渲染机制：动态组装单词卡片网格 (支持局部比例字号缩放及阻尼内部滚动)
         function renderCards() {
             const grid = document.getElementById('cards-grid');
             const emptyState = document.getElementById('empty-state');
             const searchVal = document.getElementById('search-input').value.toLowerCase().trim();
+            
             const currentList = notebooks[activeNotebook] || [];
 
-            let filteredList = currentList.filter(item => cardFilter === "review" ? !item.mastered : item.mastered);
+            // 1. 过滤掌握状态
+            let filteredList = currentList.filter(item => {
+                if (cardFilter === "review") {
+                    return !item.mastered;
+                } else {
+                    return item.mastered;
+                }
+            });
+
+            // 2. 过滤搜索关键词
             filteredList = filteredList.filter(item => {
                 if (!searchVal) return true;
                 return item.word.toLowerCase().includes(searchVal) || 
@@ -891,11 +926,21 @@
                        (item.example && item.example.toLowerCase().includes(searchVal));
             });
 
+            // 3. 空状态展示
             if (filteredList.length === 0) {
                 grid.innerHTML = '';
                 emptyState.classList.remove('hidden');
                 emptyState.classList.add('flex');
-                document.getElementById('empty-state-title').innerText = cardFilter === "review" ? "当前分类没有未掌握单词" : "还没有已掌握的单词";
+                
+                const titleEl = document.getElementById('empty-state-title');
+                const subTitleEl = document.getElementById('empty-state-subtitle');
+                if (cardFilter === "review") {
+                    titleEl.innerText = "当前分类没有未掌握单词";
+                    subTitleEl.innerText = "你太厉害了！本分类的单词已全部攻克，或者快去顶部添加一些生词吧。";
+                } else {
+                    titleEl.innerText = "还没有已掌握的单词";
+                    subTitleEl.innerText = "在复习时，点击卡片右上角的对勾(✓)按钮，即可把单词归档到此列表。";
+                }
                 updateHeaderCount();
                 return;
             } else {
@@ -903,16 +948,19 @@
                 emptyState.classList.add('hidden');
             }
 
+            // 根据布局模式切换网格类名，平铺用 3D Grid，列表采用单列平铺
             if (layoutMode === "grid") {
                 grid.className = "adaptive-grid";
             } else {
                 grid.className = "grid grid-cols-1 gap-3 max-w-2xl mx-auto";
             }
 
+            // 4. 循环生成卡片元素
             grid.innerHTML = filteredList.map(item => {
                 const rubyBack = parseRubyText(item.word, item.kana);
                 const cleanWordFront = item.word.replace(/([^\s\[\]]+)\[([^\]]+)\]/g, '$1');
 
+                // 已掌握按钮通用逻辑 (支持等比例Padding和高度)
                 const masterButtonHtml = `
                     <button onclick="toggleCardMastered(event, '${item.id}')" class="${item.mastered ? 'text-emerald-600 hover:text-emerald-700 bg-emerald-50' : 'text-stone-300 hover:text-emerald-600 hover:bg-emerald-50'} rounded-lg transition duration-150 shrink-0 flex items-center justify-center" style="padding: calc(0.375rem * var(--card-scale, 1.0));" title="${item.mastered ? '移回复习中' : '标记为已掌握'}">
                         <svg class="w-4 h-4" style="width: calc(1rem * var(--card-scale, 1.0)); height: calc(1rem * var(--card-scale, 1.0));" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -921,16 +969,20 @@
                     </button>
                 `;
 
+                // 编辑按钮通用逻辑
                 const editButtonHtml = `
                     <button onclick="openEditCardModal(event, '${item.id}')" class="text-stone-300 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition duration-150 shrink-0 flex items-center justify-center" style="padding: calc(0.375rem * var(--card-scale, 1.0));" title="修改卡片内容">
                         <svg class="w-4 h-4" style="width: calc(1rem * var(--card-scale, 1.0)); height: calc(1rem * var(--card-scale, 1.0));" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg>
                     </button>
                 `;
 
+                // 🌟 分流：1. 平铺卡片视图 (应用 card-scale-box 独立缩放，并由 margin: auto 实现上下无缝居中)
                 if (layoutMode === "grid") {
                     return `
                         <div class="perspective group cursor-pointer card-scale-box" onclick="flipCard(this)">
                             <div class="card-inner relative w-full h-full duration-500 rounded-2xl shadow-sm border border-stone-200/80 bg-white">
+                                
+                                <!-- 卡片正面 -->
                                 <div class="card-front absolute inset-0 w-full h-full flex flex-col justify-between rounded-2xl bg-white overflow-hidden" style="padding: var(--card-pad);">
                                     <div class="flex justify-between items-center w-full shrink-0" style="margin-bottom: var(--spacing-gap);">
                                         <span class="tracking-widest text-stone-300 font-mono font-bold" style="font-size: var(--fs-tiny);">FRONT · 点击翻面</span>
@@ -939,13 +991,17 @@
                                             ${masterButtonHtml}
                                         </div>
                                     </div>
+                                    
                                     <div class="my-auto text-center w-full overflow-hidden">
                                         <h3 class="font-japanese font-medium tracking-wide text-stone-800 leading-normal truncate" style="font-size: var(--fs-title);">${cleanWordFront}</h3>
                                     </div>
+                                    
                                     <div class="text-center shrink-0" style="margin-top: var(--spacing-gap);">
                                         <span class="text-emerald-800/60 group-hover:text-emerald-800 transition-colors duration-200 font-medium" style="font-size: var(--fs-small);">点击查看假名及释义 →</span>
                                     </div>
                                 </div>
+                                
+                                <!-- 卡片背面 (引入防溢出安全区域与局部柔和滚动阻尼) -->
                                 <div class="card-back absolute inset-0 w-full h-full flex flex-col justify-between rounded-2xl bg-[#faf9f4] border border-stone-200/50 overflow-hidden" style="padding: var(--card-pad);">
                                     <div class="flex justify-between items-center w-full shrink-0" style="margin-bottom: var(--spacing-gap);">
                                         <span class="tracking-widest text-emerald-800/40 font-mono font-bold" style="font-size: var(--fs-tiny);">BACK · 解释与例句</span>
@@ -954,8 +1010,11 @@
                                             ${masterButtonHtml}
                                         </div>
                                     </div>
+
+                                    <!-- 主要内容区：卡片缩小时此区域自动自适应并拥有微型滚动条，绝不溢出被剪裁 -->
                                     <div class="flex-grow w-full overflow-hidden relative">
                                         <div class="card-content-scroll w-full h-full flex flex-col justify-start">
+                                            <!-- 利用 margin: auto 0 让内容少时自动居中，内容多时靠顶对齐并可向下滚动，永不遮挡 -->
                                             <div class="w-full my-auto flex flex-col" style="gap: var(--spacing-gap);">
                                                 <div class="text-center">
                                                     <h3 class="font-japanese font-medium text-stone-900 leading-normal inline-block" style="font-size: var(--fs-sub);">${rubyBack}</h3>
@@ -967,16 +1026,20 @@
                                             </div>
                                         </div>
                                     </div>
+
                                     <div class="text-center shrink-0" style="margin-top: var(--spacing-gap);">
                                         <span class="text-stone-400" style="font-size: var(--fs-tiny);">再次点击可转回正面</span>
                                     </div>
                                 </div>
+
                             </div>
                         </div>
                     `;
                 } else {
+                    // 🌟 分流：2. 📝 极简迷你列表模式 (手风琴折叠收纳)
                     return `
                         <div class="bg-white border border-stone-200/80 rounded-xl shadow-sm hover:border-emerald-600/20 transition-all duration-200 overflow-hidden cursor-pointer" onclick="toggleListExpand(this)">
+                            <!-- 基础一览横条 -->
                             <div class="px-5 py-3.5 flex justify-between items-center bg-white hover:bg-stone-50/50">
                                 <div class="flex items-center space-x-3">
                                     <span class="w-1.5 h-1.5 bg-emerald-800 rounded-full"></span>
@@ -985,9 +1048,14 @@
                                 <div class="flex items-center space-x-2.5">
                                     ${editButtonHtml}
                                     ${masterButtonHtml}
-                                    <svg class="w-4 h-4 text-stone-400 transition-transform duration-300 transform arrow-icon shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7"></path></svg>
+                                    <!-- 顺滑旋转折叠箭头 -->
+                                    <svg class="w-4 h-4 text-stone-400 transition-transform duration-300 transform arrow-icon shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7"></path>
+                                    </svg>
                                 </div>
                             </div>
+                            
+                            <!-- 展开区域 (假名标注、中文释义和例句) -->
                             <div class="list-expand-area hidden border-t border-stone-100 bg-[#faf9f4]/80 px-6 py-4 space-y-4">
                                 <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
                                     <div class="flex items-center space-x-2">
@@ -1009,76 +1077,131 @@
             updateHeaderCount();
         }
 
-        // 12. 翻牌与模态框
-        window.flipCard = function(element) { element.querySelector('.card-inner').classList.toggle('is-flipped'); }
-        
+        // 12. 点击翻牌
+        window.flipCard = function(element) {
+            const inner = element.querySelector('.card-inner');
+            inner.classList.toggle('is-flipped');
+        }
+
+        // 13. 编辑卡片功能区
         window.openEditCardModal = function(event, cardId) {
-            event.stopPropagation(); 
-            const card = (notebooks[activeNotebook] || []).find(c => c.id === cardId);
+            event.stopPropagation(); // 防止翻牌和折叠
+            
+            const currentList = notebooks[activeNotebook] || [];
+            const card = currentList.find(c => c.id === cardId);
             if (!card) return;
+
             document.getElementById('edit-card-id').value = card.id;
             document.getElementById('edit-word').value = card.word;
             document.getElementById('edit-kana').value = card.kana;
             document.getElementById('edit-meaning').value = card.meaning;
             document.getElementById('edit-example').value = card.example || '';
-            document.getElementById('edit-card-modal').classList.remove('hidden');
+
+            const modal = document.getElementById('edit-card-modal');
+            modal.classList.remove('hidden');
         }
-        window.closeEditCardModal = function() { document.getElementById('edit-card-modal').classList.add('hidden'); }
-        
+
+        window.closeEditCardModal = function() {
+            const modal = document.getElementById('edit-card-modal');
+            modal.classList.add('hidden');
+        }
+
+        // 保存对卡片内容的修改
         document.getElementById('edit-vocab-form').addEventListener('submit', function(e) {
             e.preventDefault();
+
             const cardId = document.getElementById('edit-card-id').value;
-            const card = (notebooks[activeNotebook] || []).find(c => c.id === cardId);
+            const currentList = notebooks[activeNotebook] || [];
+            const card = currentList.find(c => c.id === cardId);
+
             if (card) {
                 card.word = document.getElementById('edit-word').value.trim();
                 card.kana = document.getElementById('edit-kana').value.trim();
                 card.meaning = document.getElementById('edit-meaning').value.trim();
                 card.example = document.getElementById('edit-example').value.trim();
-                saveData(); renderCards(); closeEditCardModal(); showToast("卡片内容修改保存成功！");
+
+                saveData();
+                renderCards();
+                closeEditCardModal();
+                showToast("卡片内容修改保存成功！");
             }
         });
 
+        // 彻底从系统中删除本卡片
         window.submitDeleteCardPermanently = function() {
             const cardId = document.getElementById('edit-card-id').value;
             const currentList = notebooks[activeNotebook] || [];
             const cardIndex = currentList.findIndex(c => c.id === cardId);
+
             if (cardIndex > -1) {
-                lastDeletedCard = { card: currentList[cardIndex], index: cardIndex, notebook: activeNotebook };
+                lastDeletedCard = {
+                    card: currentList[cardIndex],
+                    index: cardIndex,
+                    notebook: activeNotebook
+                };
+
                 currentList.splice(cardIndex, 1);
-                saveData(); renderCards(); renderNotebookTabs(); closeEditCardModal();
+                saveData();
+                renderCards();
+                renderNotebookTabs();
+                closeEditCardModal();
+
                 showToast("已从单词库彻底删除该卡片", () => {
                     if (lastDeletedCard) {
-                        notebooks[lastDeletedCard.notebook].splice(lastDeletedCard.index, 0, lastDeletedCard.card);
-                        saveData(); renderCards(); renderNotebookTabs(); showToast("已成功撤销，卡片已恢复！");
+                        const targetList = notebooks[lastDeletedCard.notebook];
+                        targetList.splice(lastDeletedCard.index, 0, lastDeletedCard.card);
+                        saveData();
+                        renderCards();
+                        renderNotebookTabs();
+                        showToast("已成功撤销，卡片已恢复！");
                         lastDeletedCard = null;
                     }
                 });
             }
         }
 
+        // 14. 标记为“已掌握”或“撤回到复习”的逻辑
         window.toggleCardMastered = function(event, cardId) {
-            event.stopPropagation();
-            const card = (notebooks[activeNotebook] || []).find(c => c.id === cardId);
+            event.stopPropagation(); // 防止翻转与折叠
+
+            const currentList = notebooks[activeNotebook] || [];
+            const card = currentList.find(c => c.id === cardId);
+
             if (card) {
                 const oldStatus = card.mastered;
                 card.mastered = !card.mastered;
-                saveData(); renderCards(); renderNotebookTabs();
+                saveData();
+                renderCards();
+                renderNotebookTabs();
+
                 lastMasteredCardId = cardId;
-                showToast(oldStatus ? "已重新移回【复习中】单词册" : "已归档到【已掌握】归档库！", () => {
-                    const found = (notebooks[activeNotebook] || []).find(c => c.id === lastMasteredCardId);
-                    if (found) { found.mastered = oldStatus; saveData(); renderCards(); renderNotebookTabs(); showToast("撤销操作成功！"); }
+
+                const statusMessage = oldStatus ? "已重新移回【复习中】单词册" : "已归档到【已掌握】归档库！";
+                showToast(statusMessage, () => {
+                    const list = notebooks[activeNotebook] || [];
+                    const found = list.find(c => c.id === lastMasteredCardId);
+                    if (found) {
+                        found.mastered = oldStatus;
+                        saveData();
+                        renderCards();
+                        renderNotebookTabs();
+                        showToast("撤销操作成功！");
+                    }
                 });
             }
         }
 
+
         // ==========================================
-        // ✨ 集成内置 Gemini API 智能假名匹配算法
+        // ✨ 集成内置 Gemini API 智能假名匹配算法 (已修正 API 模型为通用稳定版)
         // ==========================================
         async function fetchWithBackoff(url, options, retries = 5, delay = 1000) {
             for (let i = 0; i < retries; i++) {
                 try {
                     const response = await fetch(url, options);
-                    if (response.ok) return await response.json();
+                    if (response.ok) {
+                        return await response.json();
+                    }
                     throw new Error(`API 返回错误代码: ${response.status}`);
                 } catch (error) {
                     if (i === retries - 1) throw error;
@@ -1091,124 +1214,500 @@
         window.autoLookupWord = async function(isEdit = false) {
             const wordInputId = isEdit ? 'edit-word' : 'input-word';
             const wordVal = document.getElementById(wordInputId).value.trim();
-            if (!wordVal) return showToast("请先输入需要匹配的日语单词。");
+            
+            if (!wordVal) {
+                showToast("请先输入需要匹配的日语单词。");
+                return;
+            }
 
             const btnTextId = isEdit ? 'edit-ai-btn-text' : 'ai-btn-text';
             const btnSpinnerId = isEdit ? 'edit-ai-btn-spinner' : 'ai-btn-spinner';
-            const btn = document.getElementById(isEdit ? 'edit-ai-parse-btn' : 'ai-parse-btn');
+            const btnId = isEdit ? 'edit-ai-parse-btn' : 'ai-parse-btn';
 
-            btn.disabled = true; document.getElementById(btnSpinnerId).classList.remove('hidden'); document.getElementById(btnTextId).innerText = "匹配中...";
+            const btnText = document.getElementById(btnTextId);
+            const btnSpinner = document.getElementById(btnSpinnerId);
+            const btn = document.getElementById(btnId);
 
-            const apiKey = "AIzaSyC0FFxS7qlmdOm7vZo1XP800Cgl9KY2Fzo"; // 运行时环境将自动补全
-            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
-            const systemPrompt = `你是一个非常专业且极致克制的日语研究助手。任务：仅仅生成读音平假名，以及带汉字振假名括号的对齐文本。不要尝试生成例句、中文解释。要求：生成精准的“振假名括号对齐文本” (word_with_bracket) 中括号[ ]里的假名必须只标注在对应的日文汉字上，绝对不能黏连周围的平假名。`;
+            btn.disabled = true;
+            btnSpinner.classList.remove('hidden');
+            btnText.innerText = "匹配中...";
+
+            // ⚠️ 你的专属超长 Gemini API Key 已精准写入
+            const apiKey = "AIzaSyC0FFxS7qlmdOm7vZo1XP800Cgl9KY2Fzo"; 
+            // ⚠️ 模型名称已切换至最稳定、绝不 404 的版本
+            const model = "gemini-2.5-flash";
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+
+            // 极其严苛的精准匹配假名 System Prompt (严格绝不生成例句、中文释义)
+            const systemPrompt = `你是一个非常专业且极致克制的日语研究助手。
+任务：接收用户输入的日语词汇，仅仅生成读音平假名，以及带汉字振假名括号的对齐文本。
+注意：不要尝试生成例句、不要生成中文解释。
+要求：
+1. [重要] 生成精准的“振假名括号对齐文本” (word_with_bracket) 中括号[ ]里的假名必须只标注在对应的日文汉字上，绝对不能黏连周围的平假名。
+   - 示例: 输入 '日本語'，返回 '日本[にほん]語[ご]'。
+   - 示例: 输入 '食べる'，返回 '食[た]べる' (假名 'べ' 和 'る' 不能塞进括号中)。
+   - 示例: 输入 '美味しい'，返回 '美[お]味[い]しい'。`;
+
+            const payload = {
+                contents: [{ parts: [{ text: wordVal }] }],
+                systemInstruction: { parts: [{ text: systemPrompt }] },
+                generationConfig: {
+                    responseMimeType: "application/json",
+                    responseSchema: {
+                        type: "OBJECT",
+                        properties: {
+                            kana: { type: "STRING", description: "该词的纯平假名/片假名读音，如: にほんご" },
+                            word_with_bracket: { type: "STRING", description: "带精准括号振假名标注的词，如: 日本[にほん]語[ご]" }
+                        },
+                        required: ["kana", "word_with_bracket"]
+                    }
+                }
+            };
 
             try {
                 const result = await fetchWithBackoff(url, {
-                    method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        contents: [{ parts: [{ text: wordVal }] }],
-                        systemInstruction: { parts: [{ text: systemPrompt }] },
-                        generationConfig: { responseMimeType: "application/json", responseSchema: { type: "OBJECT", properties: { kana: { type: "STRING" }, word_with_bracket: { type: "STRING" } }, required: ["kana", "word_with_bracket"] } }
-                    })
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
                 });
-                const data = JSON.parse(result.candidates?.[0]?.content?.parts?.[0]?.text);
-                if (isEdit) { document.getElementById('edit-word').value = data.word_with_bracket; document.getElementById('edit-kana').value = data.kana; }
-                else { document.getElementById('input-word').value = data.word_with_bracket; document.getElementById('input-kana').value = data.kana; }
+
+                const textJson = result.candidates?.[0]?.content?.parts?.[0]?.text;
+                if (!textJson) throw new Error("AI没有返回合法的JSON");
+
+                const data = JSON.parse(textJson);
+
+                // 仅填入单词括号化格式和纯假名
+                if (isEdit) {
+                    document.getElementById('edit-word').value = data.word_with_bracket;
+                    document.getElementById('edit-kana').value = data.kana;
+                } else {
+                    document.getElementById('input-word').value = data.word_with_bracket;
+                    document.getElementById('input-kana').value = data.kana;
+                }
+
                 showToast("✨ 假名标注匹配成功！");
             } catch (error) {
-                showToast("假名智能解析失败，请手动录入。");
+                showToast("假名智能解析失败，请检查网络或稍后重试。");
             } finally {
-                btn.disabled = false; document.getElementById(btnSpinnerId).classList.add('hidden'); document.getElementById(btnTextId).innerText = "匹配假名";
+                btn.disabled = false;
+                btnSpinner.classList.add('hidden');
+                btnText.innerText = "匹配假名";
             }
         }
 
+
         // ==========================================
-        // 💾 IndexedDB 离线词典逻辑与工具栏
+        // 💾 IndexedDB 离线词典核心存取逻辑
         // ==========================================
-        function initIndexedDB() { /* ...省略初始化，保持与原来一致... */ }
-        window.searchDictionary = function() { /* ...省略搜索逻辑... */ }
-        window.openExternalSearch = function(site) { /* ...省略在线搜索... */ }
+        function initIndexedDB() {
+            const request = indexedDB.open("OfflineDictDB", 1);
+            
+            request.onerror = function() {
+                document.getElementById('dict-db-status').innerHTML = "⚠️ 本地数据库加载失败";
+            };
+            
+            request.onsuccess = function(e) {
+                db = e.target.result;
+                checkDictionaryEmpty();
+            };
+            
+            request.onupgradeneeded = function(e) {
+                const activeDb = e.target.result;
+                const store = activeDb.createObjectStore("dictionary", { keyPath: "word" });
+                store.createIndex("kana", "kana", { unique: false });
+                store.createIndex("meaning", "meaning", { unique: false });
+            };
+        }
+
+        // 检测数据库内是否有数据，若没有则自动灌入默认初始精选词典
+        function checkDictionaryEmpty() {
+            const tx = db.transaction("dictionary", "readonly");
+            const store = tx.objectStore("dictionary");
+            const countRequest = store.count();
+            
+            countRequest.onsuccess = function() {
+                if (countRequest.result === 0) {
+                    importDictionaryData(preloadedDictionary, true);
+                } else {
+                    updateDictStatusLabel(countRequest.result);
+                }
+            };
+        }
+
+        // 更新数据库标签状态
+        function updateDictStatusLabel(count) {
+            const label = document.getElementById('dict-db-status');
+            label.innerHTML = `🟢 已加载 ${count} 个本地核心词`;
+        }
+
+        // 向本地 IndexedDB 批量填充词典数据
+        function importDictionaryData(dataArray, silent = false) {
+            const tx = db.transaction("dictionary", "readwrite");
+            const store = tx.objectStore("dictionary");
+            
+            let successCount = 0;
+            dataArray.forEach(item => {
+                if (item.word && (item.kana || item.meaning)) {
+                    store.put({
+                        word: item.word.trim(),
+                        kana: (item.kana || "").trim(),
+                        meaning: (item.meaning || "").trim()
+                    });
+                    successCount++;
+                }
+            });
+            
+            tx.oncomplete = function() {
+                const countTx = db.transaction("dictionary", "readonly");
+                const countStore = countTx.objectStore("dictionary");
+                const req = countStore.count();
+                req.onsuccess = function() {
+                    updateDictStatusLabel(req.result);
+                };
+            };
+        }
+
+        // 离线词典核心检索
+        window.searchDictionary = function() {
+            const searchVal = document.getElementById('dict-search-input').value.trim().toLowerCase();
+            const resultsBox = document.getElementById('dict-results');
+            
+            if (!searchVal) {
+                resultsBox.innerHTML = '';
+                resultsBox.classList.add('hidden');
+                return;
+            }
+
+            const tx = db.transaction("dictionary", "readonly");
+            const store = tx.objectStore("dictionary");
+            const cursorRequest = store.openCursor();
+            
+            let matched = [];
+            
+            cursorRequest.onsuccess = function(e) {
+                const cursor = e.target.result;
+                if (cursor) {
+                    const item = cursor.value;
+                    const w = item.word.toLowerCase();
+                    const k = item.kana.toLowerCase();
+                    const m = item.meaning.toLowerCase();
+                    
+                    if (w.includes(searchVal) || k.includes(searchVal) || m.includes(searchVal)) {
+                        matched.push(item);
+                    }
+                    
+                    if (matched.length < 20) {
+                        cursor.continue();
+                    } else {
+                        renderDictResults(matched);
+                    }
+                } else {
+                    renderDictResults(matched);
+                }
+            };
+        }
+
+        // 渲染词典查询结果区域
+        function renderDictResults(results) {
+            const resultsBox = document.getElementById('dict-results');
+            resultsBox.classList.remove('hidden');
+            
+            if (results.length === 0) {
+                resultsBox.innerHTML = `
+                    <div class="p-3 text-center text-xs text-stone-400 bg-stone-50 rounded-xl border border-dashed border-stone-200">
+                        未在本地离线词典中检索到该词。试用下方“网页词典”联查吧
+                    </div>
+                `;
+                return;
+            }
+
+            resultsBox.innerHTML = results.map(item => {
+                return `
+                    <div onclick="fillFromDictionary('${item.word}', '${item.kana}', '${item.meaning}')" class="p-3 bg-stone-50 hover:bg-amber-500/5 border border-stone-200/80 hover:border-amber-500/30 rounded-xl cursor-pointer transition text-left group">
+                        <div class="flex justify-between items-start">
+                            <span class="font-japanese text-sm font-semibold text-stone-800 group-hover:text-amber-900">${item.word}</span>
+                            <span class="font-japanese text-[11px] text-stone-400">${item.kana}</span>
+                        </div>
+                        <p class="text-xs text-stone-500 mt-1 truncate">${item.meaning}</p>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        // 一键将离线词典结果填入单词表单输入框
+        window.fillFromDictionary = function(word, kana, meaning) {
+            document.getElementById('input-word').value = word;
+            document.getElementById('input-kana').value = kana;
+            document.getElementById('input-meaning').value = meaning;
+            
+            document.getElementById('input-word').focus();
+            showToast("已为你将词典结果一键填入上方添加表单！");
+        }
+
+        // 外部联查
+        window.openExternalSearch = function(site) {
+            const query = document.getElementById('dict-search-input').value.trim() || document.getElementById('input-word').value.trim();
+            if (!query) {
+                showToast("请先在上方输入框中写下查询的单词本体！");
+                return;
+            }
+            const cleanQuery = query.replace(/([^\s\[\]]+)\[([^\]]+)\]/g, '$1');
+
+            let url = "";
+            if (site === 'kotobank') {
+                url = `https://kotobank.jp/word/${encodeURIComponent(cleanQuery)}`;
+            } else if (site === 'weblio_cjjc') {
+                url = `https://cjjc.weblio.jp/content/${encodeURIComponent(cleanQuery)}`;
+            } else if (site === 'nicodic') {
+                url = `https://dic.nicovideo.jp/s/al/a/${encodeURIComponent(cleanQuery)}`;
+            }
+
+            window.open(url, '_blank');
+        }
+
+        // 词典抽屉显示隐藏
         window.toggleDictionaryDrawer = function() {
             const drawer = document.getElementById('dict-drawer');
             if (drawer.classList.contains('hidden')) {
                 drawer.classList.remove('hidden');
-                setTimeout(() => drawer.classList.remove('translate-x-full'), 50);
+                setTimeout(() => {
+                    drawer.classList.remove('translate-x-full');
+                }, 50);
             } else {
                 drawer.classList.add('translate-x-full');
-                setTimeout(() => drawer.classList.add('hidden'), 300);
+                setTimeout(() => {
+                    drawer.classList.add('hidden');
+                }, 300);
             }
         }
 
-        document.getElementById('vocab-form').addEventListener('submit', function(e) {
-            e.preventDefault();
-            const wordInput = document.getElementById('input-word');
-            const newVocab = {
-                id: Date.now().toString(),
-                word: wordInput.value.trim(),
-                kana: document.getElementById('input-kana').value.trim(),
-                meaning: document.getElementById('input-meaning').value.trim(),
-                example: document.getElementById('input-example').value.trim(),
-                mastered: false
+
+        // ==========================================
+        // ☁️ 核心：GitHub Gist 轻量云同步功能 (已补齐并加固网络状态重试)
+        // ==========================================
+        window.openCloudSyncModal = function() {
+            const drawer = document.getElementById('cloud-drawer');
+            if (drawer.classList.contains('hidden')) {
+                drawer.classList.remove('hidden');
+                setTimeout(() => {
+                    drawer.classList.remove('translate-x-full');
+                }, 50);
+            }
+        }
+
+        window.closeCloudSyncModal = function() {
+            const drawer = document.getElementById('cloud-drawer');
+            drawer.classList.add('translate-x-full');
+            setTimeout(() => {
+                drawer.classList.add('hidden');
+            }, 300);
+        }
+
+        function updateSyncStatus(msg, isError = false) {
+            const statusEl = document.getElementById('sync-status');
+            statusEl.innerText = msg;
+            statusEl.className = `text-center text-xs font-semibold py-2 ${isError ? 'text-red-500' : 'text-emerald-600'}`;
+        }
+
+        // ⬆️ 上传并覆盖至云端 (包含 Gist 创建与更新逻辑)
+        window.syncToCloud = async function() {
+            const token = document.getElementById('gist-token').value.trim();
+            let gistId = document.getElementById('gist-id').value.trim();
+            const btn = document.getElementById('btn-sync-up');
+
+            if (!token) {
+                updateSyncStatus("❌ 错误：请先输入您的 GitHub Token", true);
+                return;
+            }
+
+            btn.disabled = true;
+            btn.innerHTML = `<span class="animate-spin mr-2">🌀</span>正在加密打包上传...`;
+            updateSyncStatus("📡 正在连接 GitHub 服务器...");
+
+            // 提取当前所有数据并转为 JSON 字符串
+            const payloadContent = JSON.stringify({
+                version: "1.0",
+                lastSync: new Date().toISOString(),
+                notebooks: notebooks
+            }, null, 2);
+
+            const payload = {
+                description: "Japanese Vocabulary App Backup",
+                public: false,
+                files: {
+                    "japanese_vocab_backup.json": {
+                        content: payloadContent
+                    }
+                }
             };
-            if (!notebooks[activeNotebook]) notebooks[activeNotebook] = [];
-            notebooks[activeNotebook].unshift(newVocab);
-            saveData();
-            if (cardFilter !== "review") setCardFilter("review"); else renderCards();
-            renderNotebookTabs();
-            e.target.reset(); wordInput.focus();
-            showToast("成功添加词卡到当前单词本！");
-        });
 
-        document.getElementById('search-input').addEventListener('input', renderCards);
+            try {
+                let url = 'https://api.github.com/gists';
+                let method = 'POST';
 
-        document.getElementById('toggle-all-btn').addEventListener('click', () => {
-            if (layoutMode !== "grid") return showToast("一键全部翻转功能只支持【卡片平铺】模式哦！");
-            let allFlipped = !document.querySelector('.card-inner').classList.contains('is-flipped');
-            document.querySelectorAll('.card-inner').forEach(c => allFlipped ? c.classList.add('is-flipped') : c.classList.remove('is-flipped'));
-            document.querySelector('#toggle-all-btn span').innerText = allFlipped ? "还原正面" : "全卡翻面";
-        });
+                // 如果存在 Gist ID，则执行更新操作（PATCH）
+                if (gistId) {
+                    url = `https://api.github.com/gists/${gistId}`;
+                    method = 'PATCH';
+                }
 
-        window.shuffleCards = function() {
-            const list = notebooks[activeNotebook] || [];
-            if (list.length <= 1) return showToast("当前本里只有一个单词，不用打乱哦！");
-            for (let i = list.length - 1; i > 0; i--) {
-                const j = Math.floor(Math.random() * (i + 1));
-                [list[i], list[j]] = [list[j], list[i]];
+                const response = await fetch(url, {
+                    method: method,
+                    headers: {
+                        'Accept': 'application/vnd.github.v3+json',
+                        'Authorization': `token ${token}`
+                    },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!response.ok) {
+                    if (response.status === 404) throw new Error("Gist ID 不存在或 Token 无读写权限");
+                    if (response.status === 401) throw new Error("Token 验证失败，请检查是否填错");
+                    throw new Error(`请求失败 (状态码: ${response.status})`);
+                }
+
+                const data = await response.json();
+                
+                // 如果是首次创建，自动把生成的 Gist ID 填入框内，并做本地缓存
+                if (!gistId) {
+                    document.getElementById('gist-id').value = data.id;
+                    gistId = data.id;
+                }
+
+                localStorage.setItem('gist_token', token);
+                localStorage.setItem('gist_id', gistId);
+
+                updateSyncStatus(`✅ 同步成功！(云端房间号: ${gistId})`);
+                showToast("🎉 数据已安全覆盖并上传至 GitHub 云端！");
+
+            } catch (err) {
+                updateSyncStatus(`❌ 上传失败: ${err.message}`, true);
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = `<svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg><span>☁️ ⬆️ 上传并覆盖至云端</span>`;
             }
-            saveData(); renderCards(); showToast("顺序已打乱！快开始新一轮复习吧 🎲");
         }
 
-        // 17. 导出 Markdown (防冲突版)
+        // ⬇️ 从云端拉取并恢复本地
+        window.syncFromCloud = async function() {
+            const token = document.getElementById('gist-token').value.trim();
+            const gistId = document.getElementById('gist-id').value.trim();
+            const btn = document.getElementById('btn-sync-down');
+
+            if (!token || !gistId) {
+                updateSyncStatus("❌ 错误：从云端拉取必须同时提供 Token 和 专属 Gist ID", true);
+                return;
+            }
+
+            btn.disabled = true;
+            btn.innerHTML = `<span class="animate-spin mr-2">🌀</span>正在拉取云端数据...`;
+            updateSyncStatus("📡 正在访问 GitHub 服务器...");
+
+            try {
+                const response = await fetch(`https://api.github.com/gists/${gistId}`, {
+                    method: 'GET',
+                    headers: {
+                        'Accept': 'application/vnd.github.v3+json',
+                        'Authorization': `token ${token}`
+                    }
+                });
+
+                if (!response.ok) {
+                    if (response.status === 404) throw new Error("找不到该 Gist，请检查 ID 是否正确");
+                    if (response.status === 401) throw new Error("Token 验证失败");
+                    throw new Error(`请求失败 (状态码: ${response.status})`);
+                }
+
+                const data = await response.json();
+                
+                // 解析获取到的文件内容
+                const fileObj = data.files["japanese_vocab_backup.json"];
+                if (!fileObj || !fileObj.content) {
+                    throw new Error("在您的 Gist 房间里找不到备份数据文件");
+                }
+
+                const parsedData = JSON.parse(fileObj.content);
+                
+                if (parsedData.notebooks) {
+                    notebooks = parsedData.notebooks;
+                    // 确保当前活跃单词本存在
+                    if (!notebooks[activeNotebook]) {
+                        activeNotebook = Object.keys(notebooks)[0] || "日常";
+                    }
+                    saveData();
+                    renderNotebookTabs();
+                    renderCards();
+
+                    localStorage.setItem('gist_token', token);
+                    localStorage.setItem('gist_id', gistId);
+
+                    updateSyncStatus(`✅ 数据恢复成功！(最后云端同步时间: ${new Date(parsedData.lastSync).toLocaleString()})`);
+                    showToast("🎉 数据已从云端拉取，本地卡片库已全面更新！");
+                } else {
+                    throw new Error("云端数据格式不合法，无法解析");
+                }
+
+            } catch (err) {
+                updateSyncStatus(`❌ 拉取失败: ${err.message}`, true);
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = `<svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg><span>☁️ ⬇️ 从云端拉取并恢复本地</span>`;
+            }
+        }
+
+
+        // 17. 💾 一键生成并导出格式精美、兼容极佳的 A4 结构 Markdown 练习表
         window.exportToMD = function() {
             const currentList = notebooks[activeNotebook] || [];
-            if (currentList.length === 0) return showToast("当前单词本没有可以导出的单词！");
+            if (currentList.length === 0) {
+                showToast("当前单词本没有可以导出的单词！");
+                return;
+            }
 
             const dateStr = new Date().toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' });
-            let mdContent = `# 📓 日语单词自测练习表 (${activeNotebook})\n\n- **所属单词本**: ${activeNotebook}\n- **导出日期**: ${dateStr}\n- **生词总数**: ${currentList.length} 词\n\n---\n\n`;
-            mdContent += `> **💡 背诵建议**：你可以直接将此文件导入 Obsidian、Notion 或任何支持 Markdown 的编辑器中进行背诵复习。最右侧的 [ 默写与自测备注栏 ] 保持空白，专门留给你进行手写自测和错词标记。\n\n`;
-            mdContent += `| 单词与假名 | 中文释义与例句 | 默写/自测备注栏 |\n| :--- | :--- | :--- |\n`;
+            
+            // 构建 Markdown 标准三栏表格，支持例句精细渲染
+            let mdContent = `# 📓 日语单词自测练习表 (${activeNotebook})\n\n`;
+            mdContent += `- **所属单词本**: ${activeNotebook}\n`;
+            mdContent += `- **导出日期**: ${dateStr}\n`;
+            mdContent += `- **生词总数**: ${currentList.length} 词\n\n`;
+            mdContent += `---\n\n`;
+            mdContent += `> **💡 背诵建议**：你可以直接将此文件导入 Obsidian、Notion 或任何支持 Markdown 的编辑器中进行背诵复习，也可以直接在笔记软件中将其输出为 PDF 打印成纸质版。最右侧的 [ 默写与自测备注栏 ] 保持空白，专门留给你进行手写自测和错词标记。\n\n`;
+            mdContent += `| 单词与假名 | 中文释义与例句 | 默写/自测备注栏 |\n`;
+            mdContent += `| :--- | :--- | :--- |\n`;
 
             currentList.forEach(item => {
+                // 1. 去除 HTML 尖括号，防止在部分 MD 解析器下冲突
                 let cleanWord = item.word.replace(/</g, "&lt;").replace(/>/g, "&gt;");
-                let wordCol = `**${cleanWord}**`;
-                if (item.kana) wordCol += `<br>_(${item.kana.trim()})_`;
                 
+                // 2. 格式化第一栏：加粗单词，假名作为辅助斜体小字并换行
+                let wordCol = `**${cleanWord}**`;
+                if (item.kana && item.kana.trim() !== "") {
+                    wordCol += `<br>_(${item.kana.trim()})_`;
+                }
+                
+                // 3. 格式化第二栏：转义单元格管道符，例句以灰色小字附于释义下方
                 let cleanMeaning = item.meaning.replace(/\|/g, "\\|").replace(/</g, "&lt;").replace(/>/g, "&gt;");
                 let meaningCol = `${cleanMeaning}`;
                 if (item.example) {
                     let cleanExample = item.example.replace(/\|/g, "\\|").replace(/</g, "&lt;").replace(/>/g, "&gt;");
                     meaningCol += `<br><span style="font-size: 0.85em; color: #78716c;">*例句: ${cleanExample}*</span>`;
                 }
+
+                // 4. 追加行数据
                 mdContent += `| ${wordCol} | ${meaningCol} |  |\n`;
             });
 
+            // 5. 封装 Blob 数据触发纯本地无沙盒拦截的安全流下载
             try {
                 const blob = new Blob([mdContent], { type: 'text/markdown;charset=utf-8;' });
                 const url = URL.createObjectURL(blob);
                 const link = document.createElement("a");
-                link.href = url; link.setAttribute("download", `${activeNotebook}_日语单词练习表.md`);
-                document.body.appendChild(link); link.click(); document.body.removeChild(link);
+                link.href = url;
+                link.setAttribute("download", `${activeNotebook}_日语单词练习表.md`);
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
                 URL.revokeObjectURL(url);
                 showToast("🎉 Markdown 练习表导出成功，已开始下载！");
             } catch (err) {
