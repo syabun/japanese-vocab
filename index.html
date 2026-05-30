@@ -1144,9 +1144,6 @@
             grid.innerHTML = filteredList.map(item => {
                 const rubyBack = parseRubyText(item.word, item.kana);
                 const cleanWordFront = item.word.replace(/([^\s\[\]]+)\[([^\]]+)\]/g, '$1');
-                
-                // 处理正面注音：仅针对括号内容
-                const rubyFront = parseRubyText(item.word, "");
 
                 // 已掌握按钮通用逻辑 (支持等比例Padding和高度)
                 const masterButtonHtml = `
@@ -1182,7 +1179,7 @@
                                     </div>
                                     
                                     <div class="my-auto text-center w-full overflow-hidden">
-                                        <h3 class="font-japanese font-medium tracking-wide text-stone-800 dark:text-stone-200 leading-normal truncate" lang="ja" style="font-size: var(--fs-title);">${rubyFront || cleanWordFront}</h3>
+                                        <h3 class="font-japanese font-medium tracking-wide text-stone-800 dark:text-stone-200 leading-normal truncate transition-colors" lang="ja" style="font-size: var(--fs-title);">${cleanWordFront}</h3>
                                     </div>
                                     
                                     <div class="text-center shrink-0" style="margin-top: var(--spacing-gap);">
@@ -1232,7 +1229,7 @@
                             <div class="px-5 py-3.5 flex justify-between items-center bg-white dark:bg-stone-800 hover:bg-stone-50/50 dark:hover:bg-stone-800/80 transition-colors">
                                 <div class="flex items-center space-x-3">
                                     <span class="w-1.5 h-1.5 bg-emerald-800 dark:bg-teal-500 rounded-full transition-colors"></span>
-                                    <span class="font-japanese text-base font-semibold text-stone-800 dark:text-stone-200 tracking-wide transition-colors" lang="ja">${rubyFront || cleanWordFront}</span>
+                                    <span class="font-japanese text-base font-semibold text-stone-800 dark:text-stone-200 tracking-wide transition-colors" lang="ja">${cleanWordFront}</span>
                                 </div>
                                 <div class="flex items-center space-x-2.5">
                                     ${editButtonHtml}
