@@ -6,19 +6,33 @@
     <title>日语单词本</title>
     <!-- 引入 Tailwind CSS 提供极致的现代极简视觉设计 -->
     <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        // 开启 Tailwind 的 class 级夜间模式控制
+        tailwind.config = {
+            darkMode: 'class',
+        }
+    </script>
     <!-- Google Fonts 引入现代无衬线日文字体 (Noto Sans JP) -->
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@300;400;500;700&display=swap" rel="stylesheet">
     <style>
         /* 1. 严格中日文字体区分 */
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "微软雅黑", sans-serif;
-            background-color: #fcfbf7; /* 极柔和的日式宣纸白 */
+            /* 移除写死的 background-color，交由 body 的 Tailwind class 统一管理日夜背景 */
+        }
+
+        /* 解决深色模式下背景色可能被覆盖的问题 */
+        body.dark {
+            background-color: transparent; 
         }
         
         /* 专属日文：采用现代无衬线黑体（Gothic），与现代中文黑体风格完美契合 */
         .font-japanese {
             font-family: 'Noto Sans JP', "Hiragino Sans", "Hiragino Kaku Gothic ProN", "ヒラギノ角ゴ ProN W3", "Meiryo", "メイリオ", sans-serif;
         }
+
+        /* ✨ 自定义高级暗金注音色 (夜间模式专用) */
+        .dark .text-night-gold { color: #a38a5e !important; }
 
         /* 2. 动态物理缩放核心控制变量 (卡片宽高与字体比例关联) */
         #cards-grid {
@@ -67,7 +81,7 @@
             font-size: 0.58em;
             letter-spacing: 0em; 
             text-align: center;
-            color: #8c7e6c; /* 优雅的灰褐色假名 */
+            color: #8c7e6c; /* 优雅的灰褐色假名 (日间基础色) */
             padding-bottom: 0.1em;
             user-select: none;
         }
@@ -89,17 +103,26 @@
             background: #e5e3d7;
             border-radius: 4px;
         }
+        .dark .card-content-scroll::-webkit-scrollbar-thumb {
+            background: #44403c; /* 夜间卡片内部滚动条颜色 */
+        }
         
-        /* 自定义滚动条 */
+        /* 自定义大背景滚动条 */
         ::-webkit-scrollbar {
             width: 6px;
         }
         ::-webkit-scrollbar-track {
             background: #f5f4ef;
         }
+        .dark ::-webkit-scrollbar-track {
+            background: #1c1917; /* 夜间模式滚动条轨道 */
+        }
         ::-webkit-scrollbar-thumb {
             background: #d4cfc1;
             border-radius: 3px;
+        }
+        .dark ::-webkit-scrollbar-thumb {
+            background: #44403c; /* 夜间模式滚动条滑块 */
         }
 
         /* 隐藏滚动条 */
@@ -122,29 +145,49 @@
             --spacing-gap: calc(0.75rem * var(--card-scale, 1.0));
         }
     </style>
+    <!-- 预加载脚本：根据本地存储或系统偏好设置立即应用暗黑模式，防止闪屏 -->
+    <script>
+        if (localStorage.theme === 'dark' || (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+          document.documentElement.classList.add('dark');
+        } else {
+          document.documentElement.classList.remove('dark');
+        }
+    </script>
 </head>
-<body class="text-stone-800 min-h-screen flex flex-col justify-between selection:bg-emerald-100 selection:text-emerald-900 overflow-x-hidden">
+<body class="bg-[#fcfbf7] dark:bg-stone-900 text-stone-800 dark:text-stone-300 min-h-screen flex flex-col justify-between selection:bg-emerald-100 selection:text-emerald-900 dark:selection:bg-teal-900 dark:selection:text-teal-100 overflow-x-hidden transition-colors duration-300">
 
     <!-- 顶部极简导航栏 -->
-    <header class="border-b border-stone-200/60 bg-[#fcfbf7]/80 backdrop-blur sticky top-0 z-40">
-        <div class="max-w-6xl mx-auto px-6 py-4 flex justify-between items-center">
-            <div class="flex items-center space-x-3">
-                <span class="text-xl font-bold tracking-widest text-emerald-800">日语单词本</span>
-                <span id="active-notebook-badge" class="text-xs px-2 py-0.5 bg-stone-100 text-stone-500 rounded-full border border-stone-200/60 font-medium">日常</span>
+    <header class="border-b border-stone-200/60 dark:border-stone-800/80 bg-[#fcfbf7]/80 dark:bg-stone-900/80 backdrop-blur sticky top-0 z-40 transition-colors duration-300">
+        <div class="max-w-6xl mx-auto px-6 py-4 flex justify-between items-center gap-2">
+            <div class="flex items-center space-x-2 sm:space-x-3 shrink-0">
+                <span class="text-lg sm:text-xl font-bold tracking-widest text-emerald-800 dark:text-teal-600 transition-colors whitespace-nowrap">日语单词本</span>
+                <span id="active-notebook-badge" class="text-[10px] sm:text-xs px-2 py-0.5 bg-stone-100 dark:bg-stone-800 text-stone-500 dark:text-stone-400 rounded-full border border-stone-200/60 dark:border-stone-700/60 font-medium transition-colors truncate max-w-[80px] sm:max-w-none">日常</span>
             </div>
-            <div class="flex items-center space-x-3">
-                <!-- ⚙️ AI设置 按钮 -->
-                <button onclick="openAiSettingsModal()" class="px-3 py-1.5 bg-stone-100 hover:bg-stone-200 text-stone-700 border border-stone-300 rounded-full text-xs font-semibold flex items-center space-x-1.5 transition active:scale-95 shadow-sm" title="安全存储并一键切换 AI 服务商 (Gemini / DeepSeek)">
-                    <span>⚙️ AI设置</span>
+            <!-- 手机端响应式功能按钮组 -->
+            <div class="flex items-center space-x-1.5 sm:space-x-3 overflow-x-auto scrollbar-hide py-1">
+                <!-- 🌓 主题切换按钮 -->
+                <button onclick="toggleDarkMode()" class="p-1.5 sm:p-2 hover:bg-stone-100 dark:hover:bg-stone-800 rounded-full text-stone-500 dark:text-stone-400 transition" title="切换深色/浅色模式">
+                    <svg id="theme-icon-light" class="w-5 h-5 hidden dark:block" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"></path></svg>
+                    <svg id="theme-icon-dark" class="w-5 h-5 block dark:hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"></path></svg>
                 </button>
-                <!-- ☁️ 云同步按钮 -->
-                <button onclick="openCloudSyncModal()" class="px-3.5 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-200 rounded-full text-xs font-semibold flex items-center space-x-1.5 transition active:scale-95 shadow-sm" title="使用 GitHub Gist 跨设备同步数据">
-                    <span>☁️ 云同步</span>
+
+                <!-- ⚙️ AI设置 按钮 (手机端隐藏文字) -->
+                <button onclick="openAiSettingsModal()" class="px-2.5 py-1.5 sm:px-3 bg-stone-100 dark:bg-stone-800 hover:bg-stone-200 dark:hover:bg-stone-700 text-stone-700 dark:text-stone-300 border border-stone-300 dark:border-stone-700 rounded-full text-xs font-semibold flex items-center gap-1.5 transition active:scale-95 shadow-sm whitespace-nowrap" title="安全存储并一键切换 AI 服务商 (Gemini / DeepSeek)">
+                    <span class="text-sm">⚙️</span>
+                    <span class="hidden sm:inline">AI设置</span>
                 </button>
-                <button onclick="toggleDictionaryDrawer()" class="px-3.5 py-1.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-900 border border-amber-500/30 rounded-full text-xs font-semibold flex items-center space-x-1.5 transition active:scale-95 shadow-sm hidden sm:flex" title="打开内置离线词典与在线直达">
-                    <span>🔍 查词典</span>
+                <!-- ☁️ 云同步按钮 (手机端隐藏文字) -->
+                <button onclick="openCloudSyncModal()" class="px-2.5 py-1.5 sm:px-3.5 bg-blue-50 dark:bg-blue-900/20 hover:bg-blue-100 dark:hover:bg-blue-900/40 text-blue-800 dark:text-blue-400 border border-blue-200 dark:border-blue-800/50 rounded-full text-xs font-semibold flex items-center gap-1.5 transition active:scale-95 shadow-sm whitespace-nowrap" title="使用 GitHub Gist 跨设备同步数据">
+                    <span class="text-sm">☁️</span>
+                    <span class="hidden sm:inline">云同步</span>
                 </button>
-                <span id="card-count" class="text-xs text-stone-500 font-medium hidden md:inline">正在加载...</span>
+                <!-- 查词典按钮 (移除 hidden，手机端显示图标) -->
+                <button onclick="toggleDictionaryDrawer()" class="px-2.5 py-1.5 sm:px-3.5 bg-amber-500/10 dark:bg-amber-900/20 hover:bg-amber-500/20 dark:hover:bg-amber-900/40 text-amber-900 dark:text-amber-700 border border-amber-500/30 dark:border-amber-800/30 rounded-full text-xs font-semibold flex items-center gap-1.5 transition active:scale-95 shadow-sm whitespace-nowrap" title="打开内置离线词典与在线直达">
+                    <span class="text-sm">🔍</span>
+                    <span class="hidden sm:inline">查词典</span>
+                </button>
+                <!-- 统计文字：仅在平板/桌面端显示，防止手机端挤爆 -->
+                <span id="card-count" class="text-xs text-stone-500 dark:text-stone-400 font-medium hidden md:inline ml-2 whitespace-nowrap">正在加载...</span>
             </div>
         </div>
     </header>
@@ -152,23 +195,23 @@
     <main class="max-w-5xl mx-auto px-6 py-8 w-full flex-grow relative">
         
         <!-- 输入表单区块 -->
-        <section class="bg-white rounded-2xl border border-stone-200/80 p-6 md:p-8 mb-10 shadow-sm">
-            <h2 class="text-base font-bold text-stone-700 mb-6 flex items-center">
-                <span class="w-1.5 h-4 bg-emerald-700 rounded-full mr-2.5"></span>
+        <section class="bg-white dark:bg-stone-800 rounded-2xl border border-stone-200/80 dark:border-stone-700 p-6 md:p-8 mb-10 shadow-sm transition-colors duration-300">
+            <h2 class="text-base font-bold text-stone-700 dark:text-stone-300 mb-6 flex items-center">
+                <span class="w-1.5 h-4 bg-emerald-700 dark:bg-teal-600 rounded-full mr-2.5"></span>
                 添加新单词
             </h2>
             <form id="vocab-form" class="space-y-5">
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
                     <!-- 单词输入（绝对嵌合式定位排版，杜绝溢出重叠） -->
                     <div class="space-y-1.5">
-                        <label class="block text-xs font-semibold text-stone-500">单词 (Word) <span class="text-red-500">*</span></label>
+                        <label class="block text-xs font-semibold text-stone-500 dark:text-stone-400">单词 (Word) <span class="text-red-500 dark:text-red-400">*</span></label>
                         <div class="relative w-full flex items-center">
                             <!-- 预留 pr-20 以免遮挡文字，完美整合 AI 助手 -->
                             <input type="text" id="input-word" required lang="ja"
                                 placeholder="例：日本語 或 美[おい]しい" 
-                                class="font-japanese w-full pl-4 pr-20 py-3 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-700/20 focus:border-emerald-700 transition duration-200 text-stone-800 placeholder-stone-400">
+                                class="font-japanese w-full pl-4 pr-20 py-3 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-700/20 dark:focus:ring-teal-700/30 focus:border-emerald-700 dark:focus:border-teal-700 transition duration-200 text-stone-800 dark:text-stone-200 placeholder-stone-400 dark:placeholder-stone-500">
                             <!-- 匹配假名按钮 -->
-                            <button type="button" id="ai-parse-btn" onclick="autoLookupWord(false)" class="absolute right-2.5 py-1 px-2 bg-gradient-to-r from-emerald-800/90 to-teal-800/90 text-white rounded-lg text-[11px] font-semibold hover:from-emerald-900 hover:to-teal-900 transition-all duration-200 flex items-center shadow-sm active:scale-95" title="一键自动匹配头上假名">
+                            <button type="button" id="ai-parse-btn" onclick="autoLookupWord(false)" class="absolute right-2.5 py-1 px-2 bg-gradient-to-r from-emerald-800/90 to-teal-800/90 dark:from-teal-700/90 dark:to-emerald-700/90 text-white rounded-lg text-[11px] font-semibold hover:from-emerald-900 hover:to-teal-900 dark:hover:from-teal-600 dark:hover:to-emerald-600 transition-all duration-200 flex items-center shadow-sm active:scale-95" title="一键自动匹配头上假名">
                                 <span id="ai-btn-spinner" class="hidden animate-spin mr-1">
                                     <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
                                 </span>
@@ -178,38 +221,38 @@
                     </div>
                     <!-- 假名输入 -->
                     <div class="space-y-1.5">
-                        <label class="block text-xs font-semibold text-stone-500">假名 (Kana) <span class="text-stone-400 font-normal">(AI可自动填写，也可留空)</span></label>
+                        <label class="block text-xs font-semibold text-stone-500 dark:text-stone-400">假名 (Kana) <span class="text-stone-400 dark:text-stone-500 font-normal">(AI可自动填写，也可留空)</span></label>
                         <input type="text" id="input-kana" lang="ja"
                             placeholder="例：にほんご" 
-                            class="font-japanese w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-700/20 focus:border-emerald-700 transition duration-200 text-stone-800 placeholder-stone-400">
+                            class="font-japanese w-full px-4 py-3 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-700/20 dark:focus:ring-teal-700/30 focus:border-emerald-700 dark:focus:border-teal-700 transition duration-200 text-stone-800 dark:text-stone-200 placeholder-stone-400 dark:placeholder-stone-500">
                     </div>
                 </div>
 
                 <div class="grid grid-cols-1 gap-5">
                     <!-- 中文释义 -->
                     <div class="space-y-1.5">
-                        <label class="block text-xs font-semibold text-stone-500">中文释义 (Meaning) <span class="text-red-500">*</span></label>
+                        <label class="block text-xs font-semibold text-stone-500 dark:text-stone-400">中文释义 (Meaning) <span class="text-red-500 dark:text-red-400">*</span></label>
                         <input type="text" id="input-meaning" required 
                             placeholder="例：日语 / 好吃的" 
-                            class="w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-700/20 focus:border-emerald-700 transition duration-200 text-stone-800 placeholder-stone-400">
+                            class="w-full px-4 py-3 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-700/20 dark:focus:ring-teal-700/30 focus:border-emerald-700 dark:focus:border-teal-700 transition duration-200 text-stone-800 dark:text-stone-200 placeholder-stone-400 dark:placeholder-stone-500">
                     </div>
                 </div>
 
                 <!-- 例句输入 -->
                 <div class="space-y-1.5">
-                    <label class="block text-xs font-semibold text-stone-500">例句 (Example Sentence)</label>
+                    <label class="block text-xs font-semibold text-stone-500 dark:text-stone-400">例句 (Example Sentence)</label>
                     <textarea id="input-example" rows="2" lang="ja"
                         placeholder="例：その猫が可愛いです。(那只猫很可爱。)" 
-                        class="w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-700/20 focus:border-emerald-700 transition duration-200 text-stone-800 placeholder-stone-400 resize-none"></textarea>
+                        class="w-full px-4 py-3 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-700/20 dark:focus:ring-teal-700/30 focus:border-emerald-700 dark:focus:border-teal-700 transition duration-200 text-stone-800 dark:text-stone-200 placeholder-stone-400 dark:placeholder-stone-500 resize-none"></textarea>
                 </div>
 
                 <!-- 提交按钮与快捷技巧提示 -->
                 <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between pt-2 gap-4">
-                    <div class="text-xs text-stone-500 bg-stone-100/80 rounded-lg p-3 border border-stone-200/50 leading-relaxed max-w-xl">
-                        💡 <strong>极速查假名：</strong>在单词框输入中文或汉字词后点击 <strong class="text-emerald-800">“匹配假名”</strong>，AI 仅自动匹配读音并转为精准的括号汉字对齐！
+                    <div class="text-xs text-stone-500 dark:text-stone-400 bg-stone-100/80 dark:bg-stone-700/30 rounded-lg p-3 border border-stone-200/50 dark:border-stone-600/50 leading-relaxed max-w-xl transition-colors">
+                        💡 <strong>极速查假名：</strong>在单词框输入中文或汉字词后点击 <strong class="text-emerald-800 dark:text-teal-500">“匹配假名”</strong>，AI 仅自动匹配读音并转为精准的括号汉字对齐！
                     </div>
                     <button type="submit" 
-                        class="px-8 py-3.5 bg-emerald-800 text-white rounded-xl font-medium tracking-wider hover:bg-emerald-900 active:transform active:scale-95 transition-all duration-200 shadow-md shadow-emerald-900/10 whitespace-nowrap self-end sm:self-center">
+                        class="w-full sm:w-auto px-8 py-3.5 bg-emerald-800 dark:bg-teal-700 hover:dark:bg-teal-600 text-white rounded-xl font-medium tracking-wider hover:bg-emerald-900 active:transform active:scale-95 transition-all duration-200 shadow-md shadow-emerald-900/10 dark:shadow-black/30 whitespace-nowrap self-end sm:self-center">
                         添加卡片
                     </button>
                 </div>
@@ -218,63 +261,63 @@
 
         <!-- 单词本管理器 -->
         <section class="mb-6">
-            <div class="text-xs font-bold text-stone-400 tracking-wider uppercase mb-2.5">我的单词本</div>
-            <div class="flex items-center justify-between border-b border-stone-200 pb-2 gap-4">
+            <div class="text-xs font-bold text-stone-400 dark:text-stone-500 tracking-wider uppercase mb-2.5 transition-colors">我的单词本</div>
+            <div class="flex items-center justify-between border-b border-stone-200 dark:border-stone-700 pb-2 gap-2 sm:gap-4 transition-colors">
                 <!-- 单词本横向排列标签页 -->
                 <div id="notebook-tabs" class="flex items-center space-x-2 overflow-x-auto scrollbar-hide py-1 flex-grow">
                     <!-- JS 动态渲染 -->
                 </div>
                 <!-- 功能操作 -->
-                <div class="flex items-center space-x-1 flex-shrink-0">
-                    <button id="add-notebook-btn" onclick="openNewNotebookModal()" class="p-2 hover:bg-stone-100 rounded-xl text-emerald-800 transition" title="新建单词本">
+                <div class="flex items-center space-x-0.5 sm:space-x-1 flex-shrink-0">
+                    <button id="add-notebook-btn" onclick="openNewNotebookModal()" class="p-1.5 sm:p-2 hover:bg-stone-100 dark:hover:bg-stone-800 rounded-xl text-emerald-800 dark:text-teal-500 transition" title="新建单词本">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
                     </button>
                     <!-- ✏️ 编辑(重命名)按钮 -->
-                    <button id="rename-notebook-btn" onclick="openRenameNotebookModal()" class="p-2 text-stone-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition" title="重命名当前单词本">
+                    <button id="rename-notebook-btn" onclick="openRenameNotebookModal()" class="p-1.5 sm:p-2 text-stone-400 dark:text-stone-500 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-stone-800 rounded-xl transition" title="重命名当前单词本">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg>
                     </button>
-                    <button id="delete-notebook-btn" onclick="openDeleteNotebookConfirm()" class="p-2 text-stone-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition" title="删除当前单词本">
+                    <button id="delete-notebook-btn" onclick="openDeleteNotebookConfirm()" class="p-1.5 sm:p-2 text-stone-400 dark:text-stone-500 hover:text-red-500 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-stone-800 rounded-xl transition" title="删除当前单词本">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
                     </button>
                 </div>
             </div>
         </section>
 
-        <!-- 布局切换与缩放设置面板 -->
-        <section class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 bg-stone-100/60 rounded-2xl border border-stone-200/50 mb-6">
+        <!-- 布局切换与缩放设置面板 (加入 flex-wrap 适配小屏幕) -->
+        <section class="flex flex-wrap sm:flex-nowrap items-center justify-between gap-4 p-4 bg-stone-100/60 dark:bg-stone-800/50 rounded-2xl border border-stone-200/50 dark:border-stone-700/50 mb-6 transition-colors">
             <!-- 视图一键切换 -->
-            <div class="flex items-center space-x-2.5">
-                <span class="text-xs font-bold text-stone-500 uppercase tracking-wider">视图模式:</span>
-                <div class="inline-flex bg-stone-200/60 p-0.5 rounded-xl border border-stone-200/30 shrink-0 shadow-inner">
-                    <button id="view-grid-btn" onclick="setViewMode('grid')" class="px-3.5 py-1.5 rounded-lg text-xs font-bold transition duration-200 bg-white text-emerald-800 shadow-sm flex items-center space-x-1.5">
-                        <span>🎴</span> <span>卡片平铺</span>
+            <div class="flex items-center space-x-2.5 w-full sm:w-auto">
+                <span class="text-xs font-bold text-stone-500 dark:text-stone-400 uppercase tracking-wider shrink-0">视图模式:</span>
+                <div class="inline-flex bg-stone-200/60 dark:bg-stone-900/60 p-0.5 rounded-xl border border-stone-200/30 dark:border-stone-700/50 shrink-0 shadow-inner flex-grow justify-center sm:justify-start">
+                    <button id="view-grid-btn" onclick="setViewMode('grid')" class="px-3.5 py-1.5 w-1/2 sm:w-auto rounded-lg text-xs font-bold transition duration-200 bg-white dark:bg-stone-700 text-emerald-800 dark:text-teal-400 shadow-sm flex items-center justify-center space-x-1.5">
+                        <span>🎴</span> <span>平铺</span>
                     </button>
-                    <button id="view-list-btn" onclick="setViewMode('list')" class="px-3.5 py-1.5 rounded-lg text-xs font-bold transition duration-200 text-stone-500 hover:text-stone-800 flex items-center space-x-1.5">
-                        <span>📝</span> <span>迷你列表</span>
+                    <button id="view-list-btn" onclick="setViewMode('list')" class="px-3.5 py-1.5 w-1/2 sm:w-auto rounded-lg text-xs font-bold transition duration-200 text-stone-500 dark:text-stone-400 hover:text-stone-800 dark:hover:text-stone-200 flex items-center justify-center space-x-1.5">
+                        <span>📝</span> <span>列表</span>
                     </button>
                 </div>
             </div>
 
             <!-- 卡片无级缩放设置 -->
-            <div id="scale-control-container" class="flex items-center space-x-3 transition-opacity duration-300">
-                <span class="text-xs font-bold text-stone-500 uppercase tracking-wider">卡片大小:</span>
-                <input type="range" id="scale-slider" min="0.7" max="1.3" step="0.1" value="1.0" oninput="changeCardScale(this.value)" class="w-32 h-1.5 bg-stone-200 rounded-lg appearance-none cursor-pointer accent-emerald-800">
-                <span id="scale-value" class="text-xs text-stone-600 font-mono font-semibold">100%</span>
+            <div id="scale-control-container" class="flex items-center space-x-3 w-full sm:w-auto justify-between sm:justify-start transition-opacity duration-300 pt-2 sm:pt-0 border-t sm:border-t-0 border-stone-200/50 dark:border-stone-700/50">
+                <span class="text-xs font-bold text-stone-500 dark:text-stone-400 uppercase tracking-wider shrink-0">卡片大小:</span>
+                <input type="range" id="scale-slider" min="0.7" max="1.3" step="0.1" value="1.0" oninput="changeCardScale(this.value)" class="w-full sm:w-32 h-1.5 bg-stone-200 dark:bg-stone-700 rounded-lg appearance-none cursor-pointer accent-emerald-800 dark:accent-teal-500 mx-2">
+                <span id="scale-value" class="text-xs text-stone-600 dark:text-stone-300 font-mono font-semibold w-10 text-right shrink-0">100%</span>
             </div>
         </section>
 
         <!-- 工具栏：标题、已掌握切换、搜索 -->
         <section class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
-            <div class="flex items-center space-x-4">
-                <h2 class="text-lg font-bold text-stone-800 tracking-wider">
+            <div class="flex items-center justify-between w-full sm:w-auto space-x-4">
+                <h2 class="text-lg font-bold text-stone-800 dark:text-stone-200 tracking-wider transition-colors">
                     单词卡片库
                 </h2>
                 <!-- 已掌握/复习中 状态切换 -->
-                <div class="flex items-center bg-stone-200/60 p-0.5 rounded-xl border border-stone-200/20 shrink-0">
-                    <button id="filter-review-btn" onclick="setCardFilter('review')" class="px-3 py-1.5 rounded-lg text-xs font-bold transition duration-200 bg-white text-emerald-800 shadow-sm whitespace-nowrap">
+                <div class="flex items-center bg-stone-200/60 dark:bg-stone-800/80 p-0.5 rounded-xl border border-stone-200/20 dark:border-stone-700/50 shrink-0 transition-colors">
+                    <button id="filter-review-btn" onclick="setCardFilter('review')" class="px-3 py-1.5 rounded-lg text-xs font-bold transition duration-200 bg-white dark:bg-stone-700 text-emerald-800 dark:text-teal-400 shadow-sm whitespace-nowrap">
                         复习中
                     </button>
-                    <button id="filter-mastered-btn" onclick="setCardFilter('mastered')" class="px-3 py-1.5 rounded-lg text-xs font-bold transition duration-200 text-stone-500 hover:text-stone-800 whitespace-nowrap">
+                    <button id="filter-mastered-btn" onclick="setCardFilter('mastered')" class="px-3 py-1.5 rounded-lg text-xs font-bold transition duration-200 text-stone-500 dark:text-stone-400 hover:text-stone-800 dark:hover:text-stone-200 whitespace-nowrap">
                         已掌握
                     </button>
                 </div>
@@ -283,29 +326,31 @@
             <div class="relative w-full sm:w-72">
                 <input type="text" id="search-input" 
                     placeholder="搜索单词、假名或释义..." 
-                    class="w-full pl-9 pr-4 py-2 bg-white border border-stone-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700/20 focus:border-emerald-700 placeholder-stone-400 transition">
-                <span class="absolute left-3 top-2.5 text-stone-400">
+                    class="w-full pl-9 pr-4 py-2.5 sm:py-2 bg-white dark:bg-stone-800 border border-stone-200 dark:border-stone-700 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700/20 dark:focus:ring-teal-700/30 focus:border-emerald-700 dark:focus:border-teal-700 text-stone-800 dark:text-stone-200 placeholder-stone-400 dark:placeholder-stone-500 transition-colors">
+                <span class="absolute left-3 top-3 sm:top-2.5 text-stone-400 dark:text-stone-500">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
                 </span>
             </div>
         </section>
 
         <!-- 工具栏第二行 (导出 Markdown) -->
-        <section class="flex flex-wrap items-center gap-2.5 mb-8 border-t border-stone-200/60 pt-4">
+        <section class="flex flex-wrap items-center gap-2.5 mb-8 border-t border-stone-200/60 dark:border-stone-800 pt-4 transition-colors">
             <!-- 快捷功能：全部翻面 / 全部还原 -->
-            <button id="toggle-all-btn" class="px-3.5 py-2 border border-stone-200 hover:border-stone-300 hover:bg-stone-50 rounded-xl text-xs text-stone-600 transition whitespace-nowrap flex items-center space-x-1.5 shadow-sm">
+            <button id="toggle-all-btn" class="px-3 sm:px-3.5 py-2 border border-stone-200 dark:border-stone-700 hover:border-stone-300 dark:hover:border-stone-600 hover:bg-stone-50 dark:hover:bg-stone-800 rounded-xl text-xs text-stone-600 dark:text-stone-300 transition whitespace-nowrap flex items-center space-x-1.5 shadow-sm">
                 <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 1121.21 8H18.5"></path></svg>
-                <span>全卡翻面</span>
+                <span class="hidden sm:inline">全卡翻面</span>
+                <span class="sm:hidden">翻面</span>
             </button>
             <!-- 快捷功能：一键随机打乱顺序 -->
-            <button id="shuffle-btn" onclick="shuffleCards()" class="px-3.5 py-2 border border-stone-200 hover:border-stone-300 hover:bg-stone-50 rounded-xl text-xs text-stone-600 transition whitespace-nowrap flex items-center space-x-1.5 shadow-sm" title="随机打乱卡片顺序，加强记忆效果">
+            <button id="shuffle-btn" onclick="shuffleCards()" class="px-3 sm:px-3.5 py-2 border border-stone-200 dark:border-stone-700 hover:border-stone-300 dark:hover:border-stone-600 hover:bg-stone-50 dark:hover:bg-stone-800 rounded-xl text-xs text-stone-600 dark:text-stone-300 transition whitespace-nowrap flex items-center space-x-1.5 shadow-sm" title="随机打乱卡片顺序，加强记忆效果">
                 <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.4 15.6L20 14m0 0l-1.6-1.6M20 14H14.8c-.8 0-1.5-.4-2-1L9.2 9C8.7 8.4 8 8 7.2 8H4M4 16h3.2c.8 0 1.5-.4 2-1l1.4-1.8m2.4-3.2l1.4-1.8c.5-.6 1.2-1 2-1H20m0 0l-1.6-1.6M20 8l-1.6 1.6" />
                 </svg>
-                <span>打乱顺序</span>
+                <span class="hidden sm:inline">打乱顺序</span>
+                <span class="sm:hidden">打乱</span>
             </button>
             <!-- 导出 Markdown 练习表 -->
-            <button onclick="exportToMD()" class="px-4 py-2 bg-stone-900 text-stone-100 hover:bg-stone-800 rounded-xl text-xs font-medium transition whitespace-nowrap flex items-center space-x-1.5 shadow-md ml-auto" title="一键导出为标准的A4三栏格式Markdown练习表">
+            <button onclick="exportToMD()" class="px-4 py-2 bg-stone-900 dark:bg-stone-200 text-stone-100 dark:text-stone-900 hover:bg-stone-800 dark:hover:bg-white rounded-xl text-xs font-bold transition whitespace-nowrap flex items-center justify-center space-x-1.5 shadow-md w-full sm:w-auto sm:ml-auto mt-2 sm:mt-0" title="一键导出为标准的A4三栏格式Markdown练习表">
                 <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
                 <span>导出 MD 练习表</span>
             </button>
@@ -317,38 +362,38 @@
         </div>
 
         <!-- 空状态提示 -->
-        <div id="empty-state" class="hidden flex-col items-center justify-center py-20 text-center">
-            <div class="text-stone-300 mb-4">
+        <div id="empty-state" class="hidden flex-col items-center justify-center py-20 text-center px-4">
+            <div class="text-stone-300 dark:text-stone-600 mb-4 transition-colors">
                 <svg class="w-16 h-16 mx-auto stroke-current" fill="none" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"></path>
                 </svg>
             </div>
-            <p id="empty-state-title" class="text-stone-500 mb-2 text-base">当前单词本空空如也</p>
-            <p id="empty-state-subtitle" class="text-stone-400 text-xs">快去上方输入，为此单词本录入第一个生词吧！</p>
+            <p id="empty-state-title" class="text-stone-500 dark:text-stone-400 mb-2 text-base transition-colors">当前单词本空空如也</p>
+            <p id="empty-state-subtitle" class="text-stone-400 dark:text-stone-500 text-xs transition-colors">快去上方输入，为此单词本录入第一个生词吧！</p>
         </div>
 
     </main>
 
     <!-- ⚙️ AI 密钥配置与服务商切换 模态弹出框 -->
     <div id="ai-settings-modal" class="fixed inset-0 bg-black/60 flex items-center justify-center hidden z-50 p-4 backdrop-blur-sm transition-all duration-300">
-        <div class="bg-white rounded-2xl border border-stone-200/80 p-6 w-full max-w-md shadow-2xl transform scale-95 transition-transform duration-200">
-            <h3 class="text-base font-bold text-stone-800 mb-4 flex items-center">
-                <span class="w-1.5 h-4 bg-indigo-700 rounded-full mr-2"></span>
+        <div class="bg-white dark:bg-stone-800 rounded-2xl border border-stone-200/80 dark:border-stone-700 p-6 w-full max-w-md shadow-2xl transform scale-95 transition-all duration-200">
+            <h3 class="text-base font-bold text-stone-800 dark:text-stone-200 mb-4 flex items-center">
+                <span class="w-1.5 h-4 bg-indigo-700 dark:bg-indigo-500 rounded-full mr-2"></span>
                 AI 智能连接设置
             </h3>
-            <p class="text-xs text-stone-500 mb-5 leading-relaxed">
+            <p class="text-xs text-stone-500 dark:text-stone-400 mb-5 leading-relaxed">
                 您的密钥将安全存放于当前设备浏览器的沙盒中（localStorage），绝对不会上传至任何第三方服务器，请放心配置。
             </p>
             
             <!-- 二选一服务商切换开关 -->
             <div class="mb-5">
-                <label class="block text-xs font-bold text-stone-400 uppercase tracking-wider mb-2">当前激活的服务商</label>
-                <div class="grid grid-cols-2 gap-2 bg-stone-100 p-1 rounded-xl border border-stone-200/50">
-                    <label class="flex items-center justify-center py-2.5 rounded-lg cursor-pointer text-xs font-bold select-none border border-transparent transition has-[:checked]:bg-white has-[:checked]:text-emerald-800 has-[:checked]:shadow-sm text-stone-500">
+                <label class="block text-xs font-bold text-stone-400 dark:text-stone-500 uppercase tracking-wider mb-2">当前激活的服务商</label>
+                <div class="grid grid-cols-2 gap-2 bg-stone-100 dark:bg-stone-900/50 p-1 rounded-xl border border-stone-200/50 dark:border-stone-700">
+                    <label class="flex items-center justify-center py-2.5 rounded-lg cursor-pointer text-xs font-bold select-none border border-transparent transition has-[:checked]:bg-white dark:has-[:checked]:bg-stone-700 has-[:checked]:text-emerald-800 dark:has-[:checked]:text-teal-400 has-[:checked]:shadow-sm text-stone-500 dark:text-stone-400">
                         <input type="radio" name="ai-provider-toggle" value="gemini" class="hidden" checked>
                         <span>Google Gemini</span>
                     </label>
-                    <label class="flex items-center justify-center py-2.5 rounded-lg cursor-pointer text-xs font-bold select-none border border-transparent transition has-[:checked]:bg-white has-[:checked]:text-blue-700 has-[:checked]:shadow-sm text-stone-500">
+                    <label class="flex items-center justify-center py-2.5 rounded-lg cursor-pointer text-xs font-bold select-none border border-transparent transition has-[:checked]:bg-white dark:has-[:checked]:bg-stone-700 has-[:checked]:text-blue-700 dark:has-[:checked]:text-blue-400 has-[:checked]:shadow-sm text-stone-500 dark:text-stone-400">
                         <input type="radio" name="ai-provider-toggle" value="deepseek" class="hidden">
                         <span>DeepSeek API</span>
                     </label>
@@ -357,59 +402,59 @@
 
             <!-- Gemini Key 输入区 -->
             <div class="space-y-1.5 mb-4">
-                <label class="block text-xs font-bold text-stone-600">Gemini API Key</label>
-                <input type="password" id="gemini-key-input" placeholder="输入 AIzaSy 开头的Google Ai Studio密钥..." class="w-full px-3 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 font-mono">
+                <label class="block text-xs font-bold text-stone-600 dark:text-stone-400">Gemini API Key</label>
+                <input type="password" id="gemini-key-input" placeholder="输入 AIzaSy 开头的Google Ai Studio密钥..." class="w-full px-3 py-2.5 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:focus:ring-indigo-500/40 focus:border-indigo-500 dark:focus:border-indigo-400 font-mono text-stone-800 dark:text-stone-200">
             </div>
 
             <!-- DeepSeek Key 输入区 -->
             <div class="space-y-1.5 mb-6">
-                <label class="block text-xs font-bold text-stone-600">DeepSeek API Key</label>
-                <input type="password" id="deepseek-key-input" placeholder="输入 sk- 开头的DeepSeek密钥..." class="w-full px-3 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 font-mono">
+                <label class="block text-xs font-bold text-stone-600 dark:text-stone-400">DeepSeek API Key</label>
+                <input type="password" id="deepseek-key-input" placeholder="输入 sk- 开头的DeepSeek密钥..." class="w-full px-3 py-2.5 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:focus:ring-indigo-500/40 focus:border-indigo-500 dark:focus:border-indigo-400 font-mono text-stone-800 dark:text-stone-200">
             </div>
 
             <div class="flex justify-end space-x-2.5">
-                <button onclick="closeAiSettingsModal()" class="px-4 py-2 border border-stone-200 rounded-xl text-xs text-stone-500 hover:bg-stone-50 transition">取消</button>
-                <button onclick="saveAiSettings()" class="px-5 py-2 bg-stone-900 hover:bg-stone-800 text-white rounded-xl text-xs font-semibold transition shadow-sm">保存设置</button>
+                <button onclick="closeAiSettingsModal()" class="px-4 py-2 border border-stone-200 dark:border-stone-600 rounded-xl text-xs text-stone-500 dark:text-stone-400 hover:bg-stone-50 dark:hover:bg-stone-700 transition">取消</button>
+                <button onclick="saveAiSettings()" class="px-5 py-2 bg-stone-900 dark:bg-stone-200 hover:bg-stone-800 dark:hover:bg-white text-white dark:text-stone-900 rounded-xl text-xs font-bold transition shadow-sm">保存设置</button>
             </div>
         </div>
     </div>
 
     <!-- ☁️ 云同步设置 侧边抽屉滑出面板 -->
-    <div id="cloud-drawer" class="fixed inset-y-0 right-0 w-full sm:w-[420px] bg-white border-l border-stone-200 shadow-2xl z-50 transform translate-x-full transition-transform duration-300 ease-in-out flex flex-col hidden">
-        <div class="p-5 border-b border-stone-100 flex justify-between items-center bg-blue-50/50">
+    <div id="cloud-drawer" class="fixed inset-y-0 right-0 w-full sm:w-[420px] bg-white dark:bg-stone-800 border-l border-stone-200 dark:border-stone-700 shadow-2xl z-50 transform translate-x-full transition-transform duration-300 ease-in-out flex flex-col hidden">
+        <div class="p-5 border-b border-stone-100 dark:border-stone-700 flex justify-between items-center bg-blue-50/50 dark:bg-blue-900/10 transition-colors">
             <div class="flex items-center space-x-2">
-                <span class="text-lg font-bold text-blue-800">☁️ GitHub Gist 云同步</span>
+                <span class="text-lg font-bold text-blue-800 dark:text-blue-400">☁️ GitHub Gist 云同步</span>
             </div>
-            <button onclick="closeCloudSyncModal()" class="p-1 hover:bg-stone-200 rounded-lg text-stone-500 transition">
+            <button onclick="closeCloudSyncModal()" class="p-1 hover:bg-stone-200 dark:hover:bg-stone-700 rounded-lg text-stone-500 dark:text-stone-400 transition">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
             </button>
         </div>
 
-        <div class="p-5 flex-grow overflow-y-auto space-y-6 bg-[#fcfbf7]">
-            <div class="text-xs text-stone-500 bg-white p-4 rounded-xl border border-stone-200 shadow-sm leading-relaxed">
+        <div class="p-5 flex-grow overflow-y-auto space-y-6 bg-[#fcfbf7] dark:bg-stone-900 transition-colors">
+            <div class="text-xs text-stone-500 dark:text-stone-400 bg-white dark:bg-stone-800 p-4 rounded-xl border border-stone-200 dark:border-stone-700 shadow-sm leading-relaxed">
                 利用你的 GitHub 私密记事本 (Gist) 实现极简的跨设备同步。<br>
                 在电脑点【上传】，在手机点【拉取】，数据随心漫游！
             </div>
             
             <div class="space-y-3">
-                <label class="block text-xs font-bold text-stone-600 uppercase tracking-wider">1. 你的 GitHub Token (必填)</label>
-                <input type="password" id="gist-token" placeholder="输入 ghp_ 开头的 Token..." class="w-full px-3 py-2.5 bg-white border border-stone-300 rounded-lg text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 font-mono">
-                <p class="text-[10px] text-stone-400">去 GitHub 设置中生成一个带 `gist` 权限的 Token。</p>
+                <label class="block text-xs font-bold text-stone-600 dark:text-stone-400 uppercase tracking-wider">1. 你的 GitHub Token (必填)</label>
+                <input type="password" id="gist-token" placeholder="输入 ghp_ 开头的 Token..." class="w-full px-3 py-2.5 bg-white dark:bg-stone-800 border border-stone-300 dark:border-stone-600 rounded-lg text-sm focus:outline-none focus:border-blue-500 dark:focus:border-blue-400 focus:ring-1 focus:ring-blue-500 font-mono text-stone-800 dark:text-stone-200">
+                <p class="text-[10px] text-stone-400 dark:text-stone-500">去 GitHub 设置中生成一个带 `gist` 权限的 Token。</p>
             </div>
 
             <div class="space-y-3">
-                <label class="block text-xs font-bold text-stone-600 uppercase tracking-wider">2. 你的专属 Gist ID</label>
-                <input type="text" id="gist-id" placeholder="初次上传请留空，系统会自动生成并填入" class="w-full px-3 py-2.5 bg-white border border-stone-300 rounded-lg text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 font-mono text-stone-600">
-                <p class="text-[10px] text-stone-400">初次上传后会自动生成。在别的设备拉取时，请填写此 ID。</p>
+                <label class="block text-xs font-bold text-stone-600 dark:text-stone-400 uppercase tracking-wider">2. 你的专属 Gist ID</label>
+                <input type="text" id="gist-id" placeholder="初次上传请留空，系统会自动生成并填入" class="w-full px-3 py-2.5 bg-white dark:bg-stone-800 border border-stone-300 dark:border-stone-600 rounded-lg text-sm focus:outline-none focus:border-blue-500 dark:focus:border-blue-400 focus:ring-1 focus:ring-blue-500 font-mono text-stone-600 dark:text-stone-300">
+                <p class="text-[10px] text-stone-400 dark:text-stone-500">初次上传后会自动生成。在别的设备拉取时，请填写此 ID。</p>
             </div>
 
             <div class="pt-4 space-y-3">
-                <button id="btn-sync-up" onclick="syncToCloud()" class="w-full py-3 bg-stone-800 hover:bg-stone-900 text-white rounded-xl font-bold text-sm transition shadow-md flex items-center justify-center space-x-2">
+                <button id="btn-sync-up" onclick="syncToCloud()" class="w-full py-3 bg-stone-800 dark:bg-stone-200 hover:bg-stone-900 dark:hover:bg-white text-white dark:text-stone-900 rounded-xl font-bold text-sm transition shadow-md flex items-center justify-center space-x-2">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
                     <span> ⬆️ 上传并覆盖至云端</span>
                 </button>
                 
-                <button id="btn-sync-down" onclick="syncFromCloud()" class="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-sm transition shadow-md flex items-center justify-center space-x-2">
+                <button id="btn-sync-down" onclick="syncFromCloud()" class="w-full py-3 bg-blue-600 dark:bg-blue-700 hover:bg-blue-700 dark:hover:bg-blue-600 text-white rounded-xl font-bold text-sm transition shadow-md flex items-center justify-center space-x-2">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
                     <span>⬇️ 从云端拉取并恢复本地</span>
                 </button>
@@ -420,14 +465,14 @@
 
 
     <!-- 🔍 词典 & 查词 侧边抽屉滑出面板 -->
-    <div id="dict-drawer" class="fixed inset-y-0 right-0 w-full sm:w-[420px] bg-white border-l border-stone-200 shadow-2xl z-50 transform translate-x-full transition-transform duration-300 ease-in-out flex flex-col justify-between hidden">
+    <div id="dict-drawer" class="fixed inset-y-0 right-0 w-full sm:w-[420px] bg-white dark:bg-stone-800 border-l border-stone-200 dark:border-stone-700 shadow-2xl z-50 transform translate-x-full transition-transform duration-300 ease-in-out flex flex-col justify-between hidden">
         <!-- 抽屉头部 -->
-        <div class="p-5 border-b border-stone-100 flex justify-between items-center bg-stone-50">
+        <div class="p-5 border-b border-stone-100 dark:border-stone-700 flex justify-between items-center bg-stone-50 dark:bg-stone-800 transition-colors">
             <div class="flex items-center space-x-2">
-                <span class="text-lg font-bold text-amber-800">🔍 查词工具</span>
-                <span class="text-[10px] px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded border border-amber-200">IndexedDB 本地</span>
+                <span class="text-lg font-bold text-amber-800 dark:text-amber-500">🔍 查词工具</span>
+                <span class="text-[10px] px-1.5 py-0.5 bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400 rounded border border-amber-200 dark:border-amber-800/60">IndexedDB 本地</span>
             </div>
-            <button onclick="toggleDictionaryDrawer()" class="p-1 hover:bg-stone-200 rounded-lg text-stone-500 transition">
+            <button onclick="toggleDictionaryDrawer()" class="p-1 hover:bg-stone-200 dark:hover:bg-stone-700 rounded-lg text-stone-500 dark:text-stone-400 transition">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
             </button>
         </div>
@@ -437,14 +482,14 @@
             <!-- 1. 词典搜索主功能 -->
             <div class="space-y-2">
                 <div class="flex justify-between items-center">
-                    <label class="block text-xs font-bold text-stone-500 uppercase tracking-wider">本地词汇检索</label>
-                    <div id="dict-db-status" class="text-[9px] text-emerald-700 font-mono font-semibold"></div>
+                    <label class="block text-xs font-bold text-stone-500 dark:text-stone-400 uppercase tracking-wider">本地词汇检索</label>
+                    <div id="dict-db-status" class="text-[9px] text-emerald-700 dark:text-teal-500 font-mono font-semibold"></div>
                 </div>
                 <div class="relative">
                     <input type="text" id="dict-search-input" oninput="searchDictionary()" 
                         placeholder="输入汉字、假名或中文含义查询..." 
-                        class="w-full pl-9 pr-4 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500">
-                    <span class="absolute left-3 top-3 text-stone-400">
+                        class="w-full pl-9 pr-4 py-2.5 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/20 dark:focus:ring-amber-500/40 focus:border-amber-500 dark:focus:border-amber-500 text-stone-800 dark:text-stone-200 placeholder-stone-400 dark:placeholder-stone-500 transition-colors">
+                    <span class="absolute left-3 top-3 text-stone-400 dark:text-stone-500">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
                     </span>
                 </div>
@@ -455,90 +500,91 @@
             </div>
 
             <!-- 2. 在线查词直达车 -->
-            <div class="space-y-2 pt-2 border-t border-stone-100">
-                <label class="block text-xs font-bold text-stone-500 uppercase tracking-wider">专业在线词典联查</label>
+            <div class="space-y-2 pt-2 border-t border-stone-100 dark:border-stone-700 transition-colors">
+                <label class="block text-xs font-bold text-stone-500 dark:text-stone-400 uppercase tracking-wider">专业在线词典联查</label>
                 <div class="grid grid-cols-3 gap-2">
-                    <button onclick="openExternalSearch('kotobank')" class="p-2.5 bg-stone-50 hover:bg-amber-500/10 hover:text-amber-900 border border-stone-200 rounded-xl text-xs font-semibold text-stone-600 transition flex flex-col items-center justify-center space-y-1" title="コトバンク">
+                    <button onclick="openExternalSearch('kotobank')" class="p-2.5 bg-stone-50 dark:bg-stone-900 hover:bg-amber-500/10 dark:hover:bg-stone-700 hover:text-amber-900 dark:hover:text-amber-500 border border-stone-200 dark:border-stone-700 rounded-xl text-xs font-semibold text-stone-600 dark:text-stone-400 transition flex flex-col items-center justify-center space-y-1" title="コトバンク">
                         <span class="text-sm">🌐</span>
                         <span>コトバンク</span>
                     </button>
-                    <button onclick="openExternalSearch('weblio_cjjc')" class="p-2.5 bg-stone-50 hover:bg-amber-500/10 hover:text-amber-900 border border-stone-200 rounded-xl text-xs font-semibold text-stone-600 transition flex flex-col items-center justify-center space-y-1" title="Weblio中日日中辞典">
+                    <button onclick="openExternalSearch('weblio_cjjc')" class="p-2.5 bg-stone-50 dark:bg-stone-900 hover:bg-amber-500/10 dark:hover:bg-stone-700 hover:text-amber-900 dark:hover:text-amber-500 border border-stone-200 dark:border-stone-700 rounded-xl text-xs font-semibold text-stone-600 dark:text-stone-400 transition flex flex-col items-center justify-center space-y-1" title="Weblio中日日中辞典">
                         <span class="text-sm">🇨🇳</span>
                         <span>Weblio中日</span>
                     </button>
-                    <button onclick="openExternalSearch('nicodic')" class="p-2.5 bg-stone-50 hover:bg-amber-500/10 hover:text-amber-900 border border-stone-200 rounded-xl text-xs font-semibold text-stone-600 transition flex flex-col items-center justify-center space-y-1" title="ニコニコ大百科">
-                        <span class="text-sm">📺</span>
-                        <span>ニコニコ大百科</span>
+                    <!-- 将原先的 nicodic 按钮修改为 weblio_ruigo 按钮 -->
+                    <button onclick="openExternalSearch('weblio_ruigo')" class="p-2.5 bg-stone-50 dark:bg-stone-900 hover:bg-amber-500/10 dark:hover:bg-stone-700 hover:text-amber-900 dark:hover:text-amber-500 border border-stone-200 dark:border-stone-700 rounded-xl text-xs font-semibold text-stone-600 dark:text-stone-400 transition flex flex-col items-center justify-center space-y-1" title="Weblio類語辞典">
+                        <span class="text-sm">📖</span>
+                        <span>Weblio類語</span>
                     </button>
                 </div>
-                <p class="text-[10px] text-stone-400 leading-relaxed text-center">输入检索词后，点击上方按钮将直接带词打开在线专业词典</p>
+                <p class="text-[10px] text-stone-400 dark:text-stone-500 leading-relaxed text-center">输入检索词后，点击上方按钮将直接带词打开在线专业词典</p>
             </div>
         </div>
 
         <!-- 抽屉底部说明 -->
-        <div class="p-4 border-t border-stone-100 bg-stone-50 text-center">
-            <span class="text-[11px] text-stone-400">查出生词点击即可一键填入添加表单</span>
+        <div class="p-4 border-t border-stone-100 dark:border-stone-700 bg-stone-50 dark:bg-stone-900 transition-colors text-center">
+            <span class="text-[11px] text-stone-400 dark:text-stone-500">查出生词点击即可一键填入添加表单</span>
         </div>
     </div>
 
     <!-- 1. 新建单词本 - 自定义模态框 -->
     <div id="new-notebook-modal" class="fixed inset-0 bg-black/60 flex items-center justify-center hidden z-50 p-4 backdrop-blur-sm transition-all duration-300">
-        <div class="bg-white rounded-2xl border border-stone-200/80 p-6 w-full max-w-md shadow-2xl transform scale-95 transition-transform">
-            <h3 class="text-base font-bold text-stone-800 mb-4 flex items-center">
-                <span class="w-1.5 h-4 bg-emerald-700 rounded-full mr-2"></span>
+        <div class="bg-white dark:bg-stone-800 rounded-2xl border border-stone-200/80 dark:border-stone-700 p-6 w-full max-w-md shadow-2xl transform scale-95 transition-transform">
+            <h3 class="text-base font-bold text-stone-800 dark:text-stone-200 mb-4 flex items-center">
+                <span class="w-1.5 h-4 bg-emerald-700 dark:bg-teal-600 rounded-full mr-2"></span>
                 新建单词分类
             </h3>
-            <p class="text-xs text-stone-500 mb-4">输入新单词本的主题名称：</p>
+            <p class="text-xs text-stone-500 dark:text-stone-400 mb-4">输入新单词本的主题名称：</p>
             <input type="text" id="new-notebook-input" 
                 placeholder="例：迷宫饭" 
-                class="w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-700/20 focus:border-emerald-700 transition duration-200 text-stone-800 mb-5">
+                class="w-full px-4 py-3 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-700/20 dark:focus:ring-teal-700/30 focus:border-emerald-700 dark:focus:border-teal-700 transition duration-200 text-stone-800 dark:text-stone-200 mb-5 placeholder-stone-400 dark:placeholder-stone-500">
             <div class="flex justify-end space-x-3">
-                <button onclick="closeNewNotebookModal()" class="px-4 py-2 border border-stone-200 rounded-xl text-xs text-stone-500 hover:bg-stone-50 transition">取消</button>
-                <button onclick="submitNewNotebook()" class="px-5 py-2 bg-emerald-800 text-white rounded-xl text-xs font-semibold hover:bg-emerald-900 transition">确定创建</button>
+                <button onclick="closeNewNotebookModal()" class="px-4 py-2 border border-stone-200 dark:border-stone-600 rounded-xl text-xs text-stone-500 dark:text-stone-400 hover:bg-stone-50 dark:hover:bg-stone-700 transition">取消</button>
+                <button onclick="submitNewNotebook()" class="px-5 py-2 bg-emerald-800 dark:bg-teal-700 text-white rounded-xl text-xs font-semibold hover:bg-emerald-900 dark:hover:bg-teal-600 transition">确定创建</button>
             </div>
         </div>
     </div>
 
     <!-- 1.5 ✏️ 重命名单词本 - 自定义模态框 -->
     <div id="rename-notebook-modal" class="fixed inset-0 bg-black/60 flex items-center justify-center hidden z-50 p-4 backdrop-blur-sm transition-all duration-300">
-        <div class="bg-white rounded-2xl border border-stone-200/80 p-6 w-full max-w-md shadow-2xl transform scale-95 transition-transform">
-            <h3 class="text-base font-bold text-stone-800 mb-4 flex items-center">
-                <span class="w-1.5 h-4 bg-blue-600 rounded-full mr-2"></span>
+        <div class="bg-white dark:bg-stone-800 rounded-2xl border border-stone-200/80 dark:border-stone-700 p-6 w-full max-w-md shadow-2xl transform scale-95 transition-transform">
+            <h3 class="text-base font-bold text-stone-800 dark:text-stone-200 mb-4 flex items-center">
+                <span class="w-1.5 h-4 bg-blue-600 dark:bg-blue-500 rounded-full mr-2"></span>
                 重命名当前单词本
             </h3>
-            <p class="text-xs text-stone-500 mb-4">为 <strong id="rename-notebook-oldname" class="text-stone-700"></strong> 输入一个新的名称：</p>
+            <p class="text-xs text-stone-500 dark:text-stone-400 mb-4">为 <strong id="rename-notebook-oldname" class="text-stone-700 dark:text-stone-300"></strong> 输入一个新的名称：</p>
             <input type="text" id="rename-notebook-input" 
-                class="w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition duration-200 text-stone-800 mb-5">
+                class="w-full px-4 py-3 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:focus:ring-blue-500/40 focus:border-blue-500 dark:focus:border-blue-400 transition duration-200 text-stone-800 dark:text-stone-200 mb-5">
             <div class="flex justify-end space-x-3">
-                <button onclick="closeRenameNotebookModal()" class="px-4 py-2 border border-stone-200 rounded-xl text-xs text-stone-500 hover:bg-stone-50 transition">取消</button>
-                <button onclick="submitRenameNotebook()" class="px-5 py-2 bg-blue-600 text-white rounded-xl text-xs font-semibold hover:bg-blue-700 transition">确认改名</button>
+                <button onclick="closeRenameNotebookModal()" class="px-4 py-2 border border-stone-200 dark:border-stone-600 rounded-xl text-xs text-stone-500 dark:text-stone-400 hover:bg-stone-50 dark:hover:bg-stone-700 transition">取消</button>
+                <button onclick="submitRenameNotebook()" class="px-5 py-2 bg-blue-600 dark:bg-blue-600 text-white rounded-xl text-xs font-semibold hover:bg-blue-700 dark:hover:bg-blue-500 transition">确认改名</button>
             </div>
         </div>
     </div>
 
     <!-- 2. 删除单词本 - 自定义确认模态框 -->
     <div id="delete-notebook-modal" class="fixed inset-0 bg-black/60 flex items-center justify-center hidden z-50 p-4 backdrop-blur-sm transition-all duration-300">
-        <div class="bg-white rounded-2xl border border-stone-200/80 p-6 w-full max-w-md shadow-2xl transform scale-95 transition-transform">
-            <h3 class="text-base font-bold text-red-700 mb-4 flex items-center">
+        <div class="bg-white dark:bg-stone-800 rounded-2xl border border-stone-200/80 dark:border-stone-700 p-6 w-full max-w-md shadow-2xl transform scale-95 transition-transform">
+            <h3 class="text-base font-bold text-red-700 dark:text-red-500 mb-4 flex items-center">
                 <svg class="w-5 h-5 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
                 确认删除此单词本？
             </h3>
-            <p class="text-xs text-stone-500 mb-2 leading-relaxed">
-                你正在尝试删除单词本：<strong id="delete-notebook-name" class="text-stone-800"></strong>
+            <p class="text-xs text-stone-500 dark:text-stone-400 mb-2 leading-relaxed">
+                你正在尝试删除单词本：<strong id="delete-notebook-name" class="text-stone-800 dark:text-stone-200"></strong>
             </p>
-            <p class="text-xs text-red-500 mb-5 font-semibold">⚠️ 注意：删除后，该册中保存的所有卡片都将永久消失，无法撤销！</p>
+            <p class="text-xs text-red-500 dark:text-red-400 mb-5 font-semibold">⚠️ 注意：删除后，该册中保存的所有卡片都将永久消失，无法撤销！</p>
             <div class="flex justify-end space-x-3">
-                <button onclick="closeDeleteNotebookConfirm()" class="px-4 py-2 border border-stone-200 rounded-xl text-xs text-stone-500 hover:bg-stone-50 transition">取消</button>
-                <button onclick="submitDeleteNotebook()" class="px-5 py-2 bg-red-600 text-white rounded-xl text-xs font-semibold hover:bg-red-700 transition">确认永久删除</button>
+                <button onclick="closeDeleteNotebookConfirm()" class="px-4 py-2 border border-stone-200 dark:border-stone-600 rounded-xl text-xs text-stone-500 dark:text-stone-400 hover:bg-stone-50 dark:hover:bg-stone-700 transition">取消</button>
+                <button onclick="submitDeleteNotebook()" class="px-5 py-2 bg-red-600 dark:bg-red-700 text-white rounded-xl text-xs font-semibold hover:bg-red-700 dark:hover:bg-red-600 transition">确认永久删除</button>
             </div>
         </div>
     </div>
 
     <!-- 3. 编辑单词卡片 - 自定义模态框 (内部嵌合AI按钮) -->
     <div id="edit-card-modal" class="fixed inset-0 bg-black/60 flex items-center justify-center hidden z-50 p-4 backdrop-blur-sm transition-all duration-300">
-        <div class="bg-white rounded-2xl border border-stone-200/80 p-6 w-full max-w-xl shadow-2xl transform scale-95 transition-transform">
-            <h3 class="text-base font-bold text-stone-800 mb-4 flex items-center">
-                <span class="w-1.5 h-4 bg-blue-600 rounded-full mr-2"></span>
+        <div class="bg-white dark:bg-stone-800 rounded-2xl border border-stone-200/80 dark:border-stone-700 p-6 w-full max-w-xl shadow-2xl transform scale-95 transition-transform">
+            <h3 class="text-base font-bold text-stone-800 dark:text-stone-200 mb-4 flex items-center">
+                <span class="w-1.5 h-4 bg-blue-600 dark:bg-blue-500 rounded-full mr-2"></span>
                 修改单词卡片
             </h3>
             <form id="edit-vocab-form" class="space-y-4">
@@ -546,12 +592,12 @@
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <!-- 编辑状态下的单词输入 -->
                     <div class="space-y-1 flex flex-col justify-between">
-                        <label class="block text-[11px] font-bold text-stone-500">单词 (Word)</label>
+                        <label class="block text-[11px] font-bold text-stone-500 dark:text-stone-400">单词 (Word)</label>
                         <div class="relative w-full flex items-center">
                             <input type="text" id="edit-word" required lang="ja"
-                                class="font-japanese w-full pl-3 pr-20 py-2.5 bg-stone-50 border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-sm">
+                                class="font-japanese w-full pl-3 pr-20 py-2.5 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:focus:ring-blue-500/40 focus:border-blue-500 dark:focus:border-blue-400 text-sm text-stone-800 dark:text-stone-200">
                             <!-- 编辑面板中的 AI 快捷填充 -->
-                            <button type="button" id="edit-ai-parse-btn" onclick="autoLookupWord(true)" class="absolute right-1.5 py-1 px-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-md text-[11px] font-semibold hover:from-blue-700 hover:to-indigo-700 transition-all duration-200 flex items-center shadow-sm active:scale-95" title="使用AI重新校准读音">
+                            <button type="button" id="edit-ai-parse-btn" onclick="autoLookupWord(true)" class="absolute right-1.5 py-1 px-2 bg-gradient-to-r from-blue-600 to-indigo-600 dark:from-blue-600 dark:to-indigo-600 text-white rounded-md text-[11px] font-semibold hover:from-blue-700 hover:to-indigo-700 dark:hover:from-blue-500 dark:hover:to-indigo-500 transition-all duration-200 flex items-center shadow-sm active:scale-95" title="使用AI重新校准读音">
                                 <span id="edit-ai-btn-spinner" class="hidden animate-spin mr-1">
                                     <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
                                 </span>
@@ -560,31 +606,31 @@
                         </div>
                     </div>
                     <div class="space-y-1">
-                        <label class="block text-[11px] font-bold text-stone-500">假名 (Kana)</label>
+                        <label class="block text-[11px] font-bold text-stone-500 dark:text-stone-400">假名 (Kana)</label>
                         <input type="text" id="edit-kana" lang="ja"
-                            class="font-japanese w-full px-3 py-2.5 bg-stone-50 border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-sm">
+                            class="font-japanese w-full px-3 py-2.5 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:focus:ring-blue-500/40 focus:border-blue-500 dark:focus:border-blue-400 text-sm text-stone-800 dark:text-stone-200">
                     </div>
                 </div>
                 <div class="space-y-1">
-                    <label class="block text-[11px] font-bold text-stone-500">中文释义 (Meaning)</label>
+                    <label class="block text-[11px] font-bold text-stone-500 dark:text-stone-400">中文释义 (Meaning)</label>
                     <input type="text" id="edit-meaning" required 
-                        class="w-full px-3 py-2.5 bg-stone-50 border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-sm">
+                        class="w-full px-3 py-2.5 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:focus:ring-blue-500/40 focus:border-blue-500 dark:focus:border-blue-400 text-sm text-stone-800 dark:text-stone-200">
                 </div>
                 <div class="space-y-1">
-                    <label class="block text-[11px] font-bold text-stone-500">例句 (Example Sentence)</label>
+                    <label class="block text-[11px] font-bold text-stone-500 dark:text-stone-400">例句 (Example Sentence)</label>
                     <textarea id="edit-example" rows="2" lang="ja"
-                        class="w-full px-3 py-2 bg-stone-50 border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-sm resize-none"></textarea>
+                        class="w-full px-3 py-2 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:focus:ring-blue-500/40 focus:border-blue-500 dark:focus:border-blue-400 text-sm resize-none text-stone-800 dark:text-stone-200"></textarea>
                 </div>
                 
-                <div class="flex items-center justify-between pt-3 border-t border-stone-100">
+                <div class="flex items-center justify-between pt-3 border-t border-stone-100 dark:border-stone-700 transition-colors">
                     <!-- 彻底从库里删除卡片 -->
-                    <button type="button" onclick="submitDeleteCardPermanently()" class="px-4 py-2 text-red-600 hover:bg-red-50 rounded-xl text-xs font-semibold transition flex items-center space-x-1">
+                    <button type="button" onclick="submitDeleteCardPermanently()" class="px-4 py-2 text-red-600 dark:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-xl text-xs font-semibold transition flex items-center space-x-1">
                         <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
                         <span>彻底删除卡片</span>
                     </button>
                     <div class="flex space-x-2">
-                        <button type="button" onclick="closeEditCardModal()" class="px-4 py-2 border border-stone-200 rounded-xl text-xs text-stone-500 hover:bg-stone-50 transition">取消</button>
-                        <button type="submit" class="px-5 py-2 bg-blue-600 text-white rounded-xl text-xs font-semibold hover:bg-blue-700 transition">保存修改</button>
+                        <button type="button" onclick="closeEditCardModal()" class="px-4 py-2 border border-stone-200 dark:border-stone-600 rounded-xl text-xs text-stone-500 dark:text-stone-400 hover:bg-stone-50 dark:hover:bg-stone-700 transition">取消</button>
+                        <button type="submit" class="px-5 py-2 bg-blue-600 text-white rounded-xl text-xs font-semibold hover:bg-blue-700 dark:hover:bg-blue-500 transition">保存修改</button>
                     </div>
                 </div>
             </form>
@@ -592,19 +638,32 @@
     </div>
 
     <!-- 4. 非阻塞式通知 & 撤销操作 Toast -->
-    <div id="toast" class="fixed bottom-6 right-6 px-5 py-3.5 bg-stone-900 text-stone-100 rounded-xl text-sm shadow-xl transform translate-y-20 opacity-0 transition-all duration-300 pointer-events-auto z-50 flex items-center justify-between space-x-4 min-w-[280px]">
-        <span id="toast-message"></span>
-        <button id="toast-action" class="hidden text-emerald-400 hover:text-emerald-300 font-bold text-xs shrink-0 px-2 py-1 bg-stone-800 hover:bg-stone-700 rounded transition">撤销</button>
+    <div id="toast" class="fixed bottom-6 right-6 px-5 py-3.5 bg-stone-900 dark:bg-stone-200 text-stone-100 dark:text-stone-900 rounded-xl text-sm shadow-xl transform translate-y-20 opacity-0 transition-all duration-300 pointer-events-auto z-50 flex items-center justify-between space-x-4 min-w-[280px]">
+        <span id="toast-message" class="font-medium"></span>
+        <button id="toast-action" class="hidden text-emerald-400 dark:text-teal-600 hover:text-emerald-300 dark:hover:text-teal-700 font-bold text-xs shrink-0 px-2 py-1 bg-stone-800 dark:bg-stone-300 hover:bg-stone-700 dark:hover:bg-stone-400 rounded transition">撤销</button>
     </div>
 
     <!-- 页脚 -->
-    <footer class="border-t border-stone-200/60 bg-[#fcfbf7] py-6 text-center text-xs text-stone-400">
+    <footer class="border-t border-stone-200/60 dark:border-stone-800 bg-[#fcfbf7] dark:bg-stone-900 py-6 text-center text-xs text-stone-400 dark:text-stone-500 transition-colors duration-300">
         <p class="mb-1">个人日语单词账 · 精准的中日文排版保障</p>
         <p class="font-mono">© 2026 Vibe Coding Project</p>
     </footer>
 
     <script>
-        
+        // ==========================================
+        // 🌓 夜间模式控制逻辑
+        // ==========================================
+        function toggleDarkMode() {
+            const html = document.documentElement;
+            if (html.classList.contains('dark')) {
+                html.classList.remove('dark');
+                localStorage.theme = 'light';
+            } else {
+                html.classList.add('dark');
+                localStorage.theme = 'dark';
+            }
+        }
+
         // 1. 初始化高品质默认单词数据 (按本分类组织，新增 mastered 状态标记)
         const defaultNotebooks = {
             "日常": [
@@ -738,11 +797,12 @@
             
             if (bracketRegex.test(word)) {
                 bracketRegex.lastIndex = 0;
-                return word.replace(bracketRegex, '<ruby>$1<rt>$2</rt></ruby>');
+                // 注意这里安全注入了暗金色 class
+                return word.replace(bracketRegex, '<ruby>$1<rt class="dark:text-night-gold">$2</rt></ruby>');
             }
             
             if (fallbackKana && fallbackKana.trim() !== "") {
-                return `<ruby>${word}<rt>${fallbackKana.trim()}</rt></ruby>`;
+                return `<ruby>${word}<rt class="dark:text-night-gold">${fallbackKana.trim()}</rt></ruby>`;
             }
             
             return word;
@@ -757,18 +817,18 @@
                 const jpSent = match[1].trim();
                 const cnTrans = match[2] ? match[2].trim() : '';
                 return `
-                    <div class="text-left bg-white/70 rounded-xl border border-stone-200/30 w-full" style="padding: calc(0.75rem * var(--card-scale, 1.0));">
-                        <span class="uppercase font-bold tracking-wider text-emerald-800/50 block" style="font-size: var(--fs-tiny, 0.625rem); margin-bottom: calc(0.25rem * var(--card-scale, 1.0));">例句</span>
-                        <div class="font-japanese text-stone-800 font-medium leading-relaxed" lang="ja" style="font-size: calc(0.84rem * var(--card-scale, 1.0));">${jpSent}</div>
-                        ${cnTrans ? `<div class="text-stone-500 leading-normal" style="font-size: calc(0.75rem * var(--card-scale, 1.0));">${cnTrans}</div>` : ''}
+                    <div class="text-left bg-white/70 dark:bg-stone-800/70 rounded-xl border border-stone-200/30 dark:border-stone-700/50 w-full transition-colors" style="padding: calc(0.75rem * var(--card-scale, 1.0));">
+                        <span class="uppercase font-bold tracking-wider text-emerald-800/50 dark:text-teal-500/60 block transition-colors" style="font-size: var(--fs-tiny, 0.625rem); margin-bottom: calc(0.25rem * var(--card-scale, 1.0));">例句</span>
+                        <div class="font-japanese text-stone-800 dark:text-stone-200 font-medium leading-relaxed transition-colors" lang="ja" style="font-size: calc(0.84rem * var(--card-scale, 1.0));">${jpSent}</div>
+                        ${cnTrans ? `<div class="text-stone-500 dark:text-stone-400 leading-normal transition-colors" style="font-size: calc(0.75rem * var(--card-scale, 1.0));">${cnTrans}</div>` : ''}
                     </div>
                 `;
             }
             
             return `
-                <div class="text-left bg-white/70 rounded-xl border border-stone-200/30 w-full" style="padding: calc(0.75rem * var(--card-scale, 1.0));">
-                    <span class="uppercase font-bold tracking-wider text-emerald-800/50 block" style="font-size: var(--fs-tiny, 0.625rem); margin-bottom: calc(0.25rem * var(--card-scale, 1.0));">例句</span>
-                    <div class="font-japanese text-stone-800 font-medium leading-relaxed" lang="ja" style="font-size: calc(0.84rem * var(--card-scale, 1.0));">${exampleText}</div>
+                <div class="text-left bg-white/70 dark:bg-stone-800/70 rounded-xl border border-stone-200/30 dark:border-stone-700/50 w-full transition-colors" style="padding: calc(0.75rem * var(--card-scale, 1.0));">
+                    <span class="uppercase font-bold tracking-wider text-emerald-800/50 dark:text-teal-500/60 block transition-colors" style="font-size: var(--fs-tiny, 0.625rem); margin-bottom: calc(0.25rem * var(--card-scale, 1.0));">例句</span>
+                    <div class="font-japanese text-stone-800 dark:text-stone-200 font-medium leading-relaxed transition-colors" lang="ja" style="font-size: calc(0.84rem * var(--card-scale, 1.0));">${exampleText}</div>
                 </div>
             `;
         }
@@ -782,7 +842,7 @@
             const reviewedList = list.filter(c => !c.mastered);
             const masteredList = list.filter(c => c.mastered);
 
-            countEl.innerHTML = `复习中：<strong class="text-emerald-800 text-sm font-sans mx-0.5">${reviewedList.length}</strong> · 已掌握：<strong class="text-stone-500 text-sm font-sans mx-0.5">${masteredList.length}</strong>`;
+            countEl.innerHTML = `复习中：<strong class="text-emerald-800 dark:text-teal-500 text-sm font-sans mx-0.5">${reviewedList.length}</strong> · 已掌握：<strong class="text-stone-500 dark:text-stone-400 text-sm font-sans mx-0.5">${masteredList.length}</strong>`;
             badgeEl.innerText = activeNotebook;
         }
 
@@ -819,11 +879,11 @@
             const masteredBtn = document.getElementById('filter-mastered-btn');
             
             if (cardFilter === "review") {
-                reviewBtn.className = "px-3 py-1.5 rounded-lg text-xs font-bold transition duration-200 bg-white text-emerald-800 shadow-sm whitespace-nowrap";
-                masteredBtn.className = "px-3 py-1.5 rounded-lg text-xs font-bold transition duration-200 text-stone-500 hover:text-stone-800 whitespace-nowrap";
+                reviewBtn.className = "px-3 py-1.5 rounded-lg text-xs font-bold transition duration-200 bg-white dark:bg-stone-700 text-emerald-800 dark:text-teal-400 shadow-sm whitespace-nowrap";
+                masteredBtn.className = "px-3 py-1.5 rounded-lg text-xs font-bold transition duration-200 text-stone-500 dark:text-stone-400 hover:text-stone-800 dark:hover:text-stone-200 whitespace-nowrap";
             } else {
-                reviewBtn.className = "px-3 py-1.5 rounded-lg text-xs font-bold transition duration-200 text-stone-500 hover:text-stone-800 whitespace-nowrap";
-                masteredBtn.className = "px-3 py-1.5 rounded-lg text-xs font-bold transition duration-200 bg-white text-emerald-800 shadow-sm whitespace-nowrap";
+                reviewBtn.className = "px-3 py-1.5 rounded-lg text-xs font-bold transition duration-200 text-stone-500 dark:text-stone-400 hover:text-stone-800 dark:hover:text-stone-200 whitespace-nowrap";
+                masteredBtn.className = "px-3 py-1.5 rounded-lg text-xs font-bold transition duration-200 bg-white dark:bg-stone-700 text-emerald-800 dark:text-teal-400 shadow-sm whitespace-nowrap";
             }
             renderCards();
         }
@@ -837,13 +897,13 @@
             const gridContainer = document.getElementById('cards-grid');
 
             if (mode === "grid") {
-                gridBtn.className = "px-3.5 py-1.5 rounded-lg text-xs font-bold transition duration-200 bg-white text-emerald-800 shadow-sm flex items-center space-x-1.5";
-                listBtn.className = "px-3.5 py-1.5 rounded-lg text-xs font-bold transition duration-200 text-stone-500 hover:text-stone-800 flex items-center space-x-1.5";
+                gridBtn.className = "px-3.5 py-1.5 w-1/2 sm:w-auto rounded-lg text-xs font-bold transition duration-200 bg-white dark:bg-stone-700 text-emerald-800 dark:text-teal-400 shadow-sm flex items-center justify-center space-x-1.5";
+                listBtn.className = "px-3.5 py-1.5 w-1/2 sm:w-auto rounded-lg text-xs font-bold transition duration-200 text-stone-500 dark:text-stone-400 hover:text-stone-800 dark:hover:text-stone-200 flex items-center justify-center space-x-1.5";
                 scaleControl.classList.remove('opacity-40', 'pointer-events-none');
                 gridContainer.className = "adaptive-grid";
             } else {
-                gridBtn.className = "px-3.5 py-1.5 rounded-lg text-xs font-bold transition duration-200 text-stone-500 hover:text-stone-800 flex items-center space-x-1.5";
-                listBtn.className = "px-3.5 py-1.5 rounded-lg text-xs font-bold transition duration-200 bg-white text-emerald-800 shadow-sm flex items-center space-x-1.5";
+                gridBtn.className = "px-3.5 py-1.5 w-1/2 sm:w-auto rounded-lg text-xs font-bold transition duration-200 text-stone-500 dark:text-stone-400 hover:text-stone-800 dark:hover:text-stone-200 flex items-center justify-center space-x-1.5";
+                listBtn.className = "px-3.5 py-1.5 w-1/2 sm:w-auto rounded-lg text-xs font-bold transition duration-200 bg-white dark:bg-stone-700 text-emerald-800 dark:text-teal-400 shadow-sm flex items-center justify-center space-x-1.5";
                 scaleControl.classList.add('opacity-40', 'pointer-events-none');
                 gridContainer.className = "grid grid-cols-1 gap-3 max-w-2xl mx-auto";
             }
@@ -868,14 +928,14 @@
             
             container.innerHTML = names.map(name => {
                 const isActive = name === activeNotebook;
-                const activeStyle = "bg-emerald-800 text-white shadow-sm font-semibold";
-                const inactiveStyle = "bg-white hover:bg-stone-100/80 text-stone-600 border border-stone-200 hover:border-stone-300";
+                const activeStyle = "bg-emerald-800 dark:bg-teal-700 text-white shadow-sm font-semibold";
+                const inactiveStyle = "bg-white dark:bg-stone-800 hover:bg-stone-100/80 dark:hover:bg-stone-700 text-stone-600 dark:text-stone-400 border border-stone-200 dark:border-stone-700 hover:border-stone-300 dark:hover:border-stone-600";
                 
                 // 计算该本未掌握的生词
                 const reviewCount = notebooks[name].filter(c => !c.mastered).length;
 
                 return `
-                    <button onclick="switchNotebook('${name}')" class="px-4 py-1.5 rounded-full text-xs transition duration-200 whitespace-nowrap ${isActive ? activeStyle : inactiveStyle}">
+                    <button onclick="switchNotebook('${name}')" class="px-4 py-1.5 rounded-full text-xs transition-colors duration-200 whitespace-nowrap ${isActive ? activeStyle : inactiveStyle}">
                         ${name}
                         <span class="ml-1 text-[10px] opacity-60">(${reviewCount})</span>
                     </button>
@@ -1084,10 +1144,13 @@
             grid.innerHTML = filteredList.map(item => {
                 const rubyBack = parseRubyText(item.word, item.kana);
                 const cleanWordFront = item.word.replace(/([^\s\[\]]+)\[([^\]]+)\]/g, '$1');
+                
+                // 处理正面注音：仅针对括号内容
+                const rubyFront = parseRubyText(item.word, "");
 
                 // 已掌握按钮通用逻辑 (支持等比例Padding和高度)
                 const masterButtonHtml = `
-                    <button onclick="toggleCardMastered(event, '${item.id}')" class="${item.mastered ? 'text-emerald-600 hover:text-emerald-700 bg-emerald-50' : 'text-stone-300 hover:text-emerald-600 hover:bg-emerald-50'} rounded-lg transition duration-150 shrink-0 flex items-center justify-center" style="padding: calc(0.375rem * var(--card-scale, 1.0));" title="${item.mastered ? '移回复习中' : '标记为已掌握'}">
+                    <button onclick="toggleCardMastered(event, '${item.id}')" class="${item.mastered ? 'text-emerald-600 dark:text-teal-400 hover:text-emerald-700 dark:hover:text-teal-300 bg-emerald-50 dark:bg-teal-900/30' : 'text-stone-300 dark:text-stone-600 hover:text-emerald-600 dark:hover:text-teal-400 hover:bg-emerald-50 dark:hover:bg-stone-700/50'} rounded-lg transition duration-150 shrink-0 flex items-center justify-center" style="padding: calc(0.375rem * var(--card-scale, 1.0));" title="${item.mastered ? '移回复习中' : '标记为已掌握'}">
                         <svg class="w-4 h-4" style="width: calc(1rem * var(--card-scale, 1.0)); height: calc(1rem * var(--card-scale, 1.0));" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="${item.mastered ? '2.2' : '2.5'}" d="${item.mastered ? 'M10 19l-7-7m0 0l7-7m-7 7h18' : 'M5 13l4 4L19 7'}"></path>
                         </svg>
@@ -1096,21 +1159,22 @@
 
                 // 编辑按钮通用逻辑
                 const editButtonHtml = `
-                    <button onclick="openEditCardModal(event, '${item.id}')" class="text-stone-300 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition duration-150 shrink-0 flex items-center justify-center" style="padding: calc(0.375rem * var(--card-scale, 1.0));" title="修改卡片内容">
+                    <button onclick="openEditCardModal(event, '${item.id}')" class="text-stone-300 dark:text-stone-600 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-stone-700/50 rounded-lg transition duration-150 shrink-0 flex items-center justify-center" style="padding: calc(0.375rem * var(--card-scale, 1.0));" title="修改卡片内容">
                         <svg class="w-4 h-4" style="width: calc(1rem * var(--card-scale, 1.0)); height: calc(1rem * var(--card-scale, 1.0));" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg>
                     </button>
                 `;
 
-                // 🌟 分流：1. 平铺卡片视图 (应用 card-scale-box 独立缩放，并由 margin: auto 实现上下无缝居中)
+                // 🌟 分流：1. 平铺卡片视图 (应用 card-scale-box 独立缩放)
+                // ⚠️ 绝不添加 transition-colors 等类名，保留纯净的 3D 翻转 CSS
                 if (layoutMode === "grid") {
                     return `
                         <div class="perspective group cursor-pointer card-scale-box" onclick="flipCard(this)">
-                            <div class="card-inner relative w-full h-full duration-500 rounded-2xl shadow-sm border border-stone-200/80 bg-white">
+                            <div class="card-inner relative w-full h-full duration-500 rounded-2xl shadow-sm border border-stone-200/80 dark:border-stone-700/80 bg-white dark:bg-stone-800">
                                 
                                 <!-- 卡片正面 -->
-                                <div class="card-front absolute inset-0 w-full h-full flex flex-col justify-between rounded-2xl bg-white overflow-hidden" style="padding: var(--card-pad);">
+                                <div class="card-front absolute inset-0 w-full h-full flex flex-col justify-between rounded-2xl bg-white dark:bg-stone-800 overflow-hidden" style="padding: var(--card-pad);">
                                     <div class="flex justify-between items-center w-full shrink-0" style="margin-bottom: var(--spacing-gap);">
-                                        <span class="tracking-widest text-stone-300 font-mono font-bold" style="font-size: var(--fs-tiny);">FRONT · 点击翻面</span>
+                                        <span class="tracking-widest text-stone-300 dark:text-stone-600 font-mono font-bold" style="font-size: var(--fs-tiny);">FRONT · 点击翻面</span>
                                         <div class="flex items-center space-x-1">
                                             ${editButtonHtml}
                                             ${masterButtonHtml}
@@ -1118,18 +1182,18 @@
                                     </div>
                                     
                                     <div class="my-auto text-center w-full overflow-hidden">
-                                        <h3 class="font-japanese font-medium tracking-wide text-stone-800 leading-normal truncate" lang="ja" style="font-size: var(--fs-title);">${cleanWordFront}</h3>
+                                        <h3 class="font-japanese font-medium tracking-wide text-stone-800 dark:text-stone-200 leading-normal truncate" lang="ja" style="font-size: var(--fs-title);">${rubyFront || cleanWordFront}</h3>
                                     </div>
                                     
                                     <div class="text-center shrink-0" style="margin-top: var(--spacing-gap);">
-                                        <span class="text-emerald-800/60 group-hover:text-emerald-800 transition-colors duration-200 font-medium" style="font-size: var(--fs-small);">点击查看假名及释义 →</span>
+                                        <span class="text-emerald-800/60 dark:text-teal-600/80 group-hover:text-emerald-800 dark:group-hover:text-teal-500 duration-200 font-medium" style="font-size: var(--fs-small);">点击查看假名及释义 →</span>
                                     </div>
                                 </div>
                                 
                                 <!-- 卡片背面 (引入防溢出安全区域与局部柔和滚动阻尼) -->
-                                <div class="card-back absolute inset-0 w-full h-full flex flex-col justify-between rounded-2xl bg-[#faf9f4] border border-stone-200/50 overflow-hidden" style="padding: var(--card-pad);">
+                                <div class="card-back absolute inset-0 w-full h-full flex flex-col justify-between rounded-2xl bg-[#faf9f4] dark:bg-[#201d1c] border border-stone-200/50 dark:border-stone-700/50 overflow-hidden" style="padding: var(--card-pad);">
                                     <div class="flex justify-between items-center w-full shrink-0" style="margin-bottom: var(--spacing-gap);">
-                                        <span class="tracking-widest text-emerald-800/40 font-mono font-bold" style="font-size: var(--fs-tiny);">BACK · 解释与例句</span>
+                                        <span class="tracking-widest text-emerald-800/40 dark:text-teal-600/40 font-mono font-bold" style="font-size: var(--fs-tiny);">BACK · 解释与例句</span>
                                         <div class="flex items-center space-x-1">
                                             ${editButtonHtml}
                                             ${masterButtonHtml}
@@ -1142,10 +1206,10 @@
                                             <!-- 利用 margin: auto 0 让内容少时自动居中，内容多时靠顶对齐并可向下滚动，永不遮挡 -->
                                             <div class="w-full my-auto flex flex-col" style="gap: var(--spacing-gap);">
                                                 <div class="text-center">
-                                                    <h3 class="font-japanese font-medium text-stone-900 leading-normal inline-block" lang="ja" style="font-size: var(--fs-sub);">${rubyBack}</h3>
+                                                    <h3 class="font-japanese font-medium text-stone-900 dark:text-stone-100 leading-normal inline-block" lang="ja" style="font-size: var(--fs-sub);">${rubyBack}</h3>
                                                 </div>
                                                 <div class="text-center">
-                                                    <p class="text-stone-700 bg-stone-200/40 rounded-lg inline-block max-w-full font-semibold" style="font-size: var(--fs-text); padding: calc(0.375rem * var(--card-scale, 1.0)) calc(0.75rem * var(--card-scale, 1.0));">${item.meaning}</p>
+                                                    <p class="text-stone-700 dark:text-stone-300 bg-stone-200/40 dark:bg-stone-700/50 rounded-lg inline-block max-w-full font-semibold" style="font-size: var(--fs-text); padding: calc(0.375rem * var(--card-scale, 1.0)) calc(0.75rem * var(--card-scale, 1.0));">${item.meaning}</p>
                                                 </div>
                                                 ${item.example ? formatExample(item.example) : ''}
                                             </div>
@@ -1153,7 +1217,7 @@
                                     </div>
 
                                     <div class="text-center shrink-0" style="margin-top: var(--spacing-gap);">
-                                        <span class="text-stone-400" style="font-size: var(--fs-tiny);">再次点击可转回正面</span>
+                                        <span class="text-stone-400 dark:text-stone-600" style="font-size: var(--fs-tiny);">再次点击可转回正面</span>
                                     </div>
                                 </div>
 
@@ -1163,33 +1227,33 @@
                 } else {
                     // 🌟 分流：2. 📝 极简迷你列表模式 (手风琴折叠收纳)
                     return `
-                        <div class="bg-white border border-stone-200/80 rounded-xl shadow-sm hover:border-emerald-600/20 transition-all duration-200 overflow-hidden cursor-pointer" onclick="toggleListExpand(this)">
+                        <div class="bg-white dark:bg-stone-800 border border-stone-200/80 dark:border-stone-700/80 rounded-xl shadow-sm hover:border-emerald-600/20 dark:hover:border-teal-600/30 transition-all duration-200 overflow-hidden cursor-pointer" onclick="toggleListExpand(this)">
                             <!-- 基础一览横条 -->
-                            <div class="px-5 py-3.5 flex justify-between items-center bg-white hover:bg-stone-50/50">
+                            <div class="px-5 py-3.5 flex justify-between items-center bg-white dark:bg-stone-800 hover:bg-stone-50/50 dark:hover:bg-stone-800/80 transition-colors">
                                 <div class="flex items-center space-x-3">
-                                    <span class="w-1.5 h-1.5 bg-emerald-800 rounded-full"></span>
-                                    <span class="font-japanese text-base font-semibold text-stone-800 tracking-wide" lang="ja">${cleanWordFront}</span>
+                                    <span class="w-1.5 h-1.5 bg-emerald-800 dark:bg-teal-500 rounded-full transition-colors"></span>
+                                    <span class="font-japanese text-base font-semibold text-stone-800 dark:text-stone-200 tracking-wide transition-colors" lang="ja">${rubyFront || cleanWordFront}</span>
                                 </div>
                                 <div class="flex items-center space-x-2.5">
                                     ${editButtonHtml}
                                     ${masterButtonHtml}
                                     <!-- 顺滑旋转折叠箭头 -->
-                                    <svg class="w-4 h-4 text-stone-400 transition-transform duration-300 transform arrow-icon shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <svg class="w-4 h-4 text-stone-400 dark:text-stone-500 transition-transform duration-300 transform arrow-icon shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7"></path>
                                     </svg>
                                 </div>
                             </div>
                             
                             <!-- 展开区域 (假名标注、中文释义和例句) -->
-                            <div class="list-expand-area hidden border-t border-stone-100 bg-[#faf9f4]/80 px-6 py-4 space-y-4">
+                            <div class="list-expand-area hidden border-t border-stone-100 dark:border-stone-700/50 bg-[#faf9f4]/80 dark:bg-stone-800/50 px-6 py-4 space-y-4 transition-colors">
                                 <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
                                     <div class="flex items-center space-x-2">
-                                        <span class="text-xs font-bold text-stone-400 uppercase tracking-wider shrink-0">假名读音:</span>
-                                        <span class="font-japanese font-medium text-stone-900 leading-normal inline-block" lang="ja">${rubyBack}</span>
+                                        <span class="text-xs font-bold text-stone-400 dark:text-stone-500 uppercase tracking-wider shrink-0 transition-colors">假名读音:</span>
+                                        <span class="font-japanese font-medium text-stone-900 dark:text-stone-100 leading-normal inline-block transition-colors" lang="ja">${rubyBack}</span>
                                     </div>
                                     <div class="flex items-center space-x-2">
-                                        <span class="text-xs font-bold text-stone-400 uppercase tracking-wider shrink-0">中文释义:</span>
-                                        <span class="text-stone-800 font-semibold px-2.5 py-1 bg-stone-200/40 rounded-lg inline-block">${item.meaning}</span>
+                                        <span class="text-xs font-bold text-stone-400 dark:text-stone-500 uppercase tracking-wider shrink-0 transition-colors">中文释义:</span>
+                                        <span class="text-stone-800 dark:text-stone-200 font-semibold px-2.5 py-1 bg-stone-200/40 dark:bg-stone-700/50 rounded-lg inline-block transition-colors">${item.meaning}</span>
                                     </div>
                                 </div>
                                 ${item.example ? formatExample(item.example) : ''}
@@ -1372,15 +1436,35 @@
         // ==========================================
         // ✨ 改动：全新重构的智能多通道假名自适应匹配模块 (兼容 Gemini 与 DeepSeek 两种网络接口)
         // ==========================================
-        async function fetchWithBackoff(url, options, retries = 5, delay = 1000) {
+        async function fetchWithBackoff(url, options, retries = 3, delay = 1000) {
             for (let i = 0; i < retries; i++) {
                 try {
                     const response = await fetch(url, options);
                     if (response.ok) {
                         return await response.json();
                     }
-                    throw new Error(`API 返回错误代码: ${response.status}`);
+                    
+                    // 根据不同的状态码精准分析并生成大白话错误提示
+                    if (response.status === 401) {
+                        throw new Error("401 权限报错：您的 API 密钥无效或已过期，请检查是否填错。");
+                    } else if (response.status === 402) {
+                        throw new Error("402 欠费报错：您的 API 账户余额不足，请充值。");
+                    } else if (response.status === 429) {
+                        const msg = "429 频率超限：操作太频繁，或新账号免费额度/余额已耗尽被拦截。";
+                        if (i === retries - 1) throw new Error(msg);
+                        throw new Error(msg); // 抛出给下面的 catch 触发重试机制
+                    } else if (response.status === 400) {
+                        throw new Error("400 请求报错：请求格式被服务器拒绝，可能是不支持该模型。");
+                    } else {
+                        const msg = `API 返回未知错误代码: ${response.status}`;
+                        if (i === retries - 1) throw new Error(msg);
+                        throw new Error(msg);
+                    }
                 } catch (error) {
+                    // 遇到不需要重试的致命错误（401密钥错, 400格式错, 402欠费），直接停止重试并抛出
+                    if (error.message.includes("401") || error.message.includes("400") || error.message.includes("402")) {
+                        throw error;
+                    }
                     if (i === retries - 1) throw error;
                     await new Promise(res => setTimeout(res, delay));
                     delay *= 2;
@@ -1422,12 +1506,12 @@
             btnSpinner.classList.remove('hidden');
             btnText.innerText = "匹配中...";
 
-            // 严苛的核心 System Prompt
+            // 还原为你之前正常运行版本的极其严苛的精准匹配假名 System Prompt
             const systemPrompt = `你是一个非常专业且极致克制的日语研究助手。
 任务：接收用户输入的日语词汇，仅仅生成读音平假名，以及带汉字振假名括号的对齐文本。
-注意：不要尝试生成例句、不要生成中文解释。必须返回一个合法的 JSON 对象，不带有任何 Markdown 语法标记包裹。
+注意：不要尝试生成例句、不要生成中文解释。
 要求：
-1. 生成精准的“振假名括号对齐文本” (word_with_bracket) 中括号[ ]里的假名必须只标注在对应的日文汉字上，绝对不能黏连周围的平假名。
+1. [重要] 生成精准的“振假名括号对齐文本” (word_with_bracket) 中括号[ ]里的假名必须只标注在对应的日文汉字上，绝对不能黏连周围的平假名。
    - 示例: 输入 '日本語'，返回 '日本[にほん]語[ご]'。
    - 示例: 输入 '食べる'，返回 '食[た]べる' (假名 'べ' 和 'る' 不能塞进括号中)。
    - 示例: 输入 '美味しい'，返回 '美[お]味[い]しい'。`;
@@ -1437,27 +1521,30 @@
                 let fetchOptions = {};
 
                 if (activeProvider === 'gemini') {
-                    // 通用稳定版 Gemini 模型请求管道
+                    // 完美还原之前的 Google API 强类型请求格式
                     const model = "gemini-2.5-flash";
                     url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${currentToken}`;
+                    
+                    const payload = {
+                        contents: [{ parts: [{ text: wordVal }] }],
+                        systemInstruction: { parts: [{ text: systemPrompt }] },
+                        generationConfig: {
+                            responseMimeType: "application/json",
+                            responseSchema: {
+                                type: "OBJECT",
+                                properties: {
+                                    kana: { type: "STRING", description: "该词的纯平假名/片假名读音，如: にほんご" },
+                                    word_with_bracket: { type: "STRING", description: "带精准括号振假名标注的词，如: 日本[にほん]語[ご]" }
+                                },
+                                required: ["kana", "word_with_bracket"]
+                            }
+                        }
+                    };
+
                     fetchOptions = {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            contents: [{ parts: [{ text: wordVal }] }],
-                            systemInstruction: { parts: [{ text: systemPrompt }] },
-                            generationConfig: {
-                                responseMimeType: "application/json",
-                                responseSchema: {
-                                    type: "OBJECT",
-                                    properties: {
-                                        kana: { type: "STRING", description: "该词的纯平假名/片假名读音" },
-                                        word_with_bracket: { type: "STRING", description: "带精准括号振假名标注的词" }
-                                    },
-                                    required: ["kana", "word_with_bracket"]
-                                }
-                            }
-                        })
+                        body: JSON.stringify(payload)
                     };
                 } else {
                     // 付费级通用 DeepSeek 模型通用请求管道
@@ -1469,7 +1556,7 @@
                             'Authorization': `Bearer ${currentToken}`
                         },
                         body: JSON.stringify({
-                            model: "deepseek-v4-flash",
+                            model: "deepseek-chat",
                             messages: [
                                 { role: "system", content: systemPrompt },
                                 { role: "user", content: `请解析以下日语词汇，以标准 JSON 返回字段 'kana' 和 'word_with_bracket'。目标词汇：${wordVal}` }
@@ -1484,9 +1571,13 @@
                 let textJson = "";
 
                 if (activeProvider === 'gemini') {
+                    // 还原为原来的干净读取方式
                     textJson = responseData.candidates?.[0]?.content?.parts?.[0]?.text;
                 } else {
                     textJson = responseData.choices?.[0]?.message?.content;
+                    if (textJson) {
+                         textJson = textJson.replace(/```json/ig, '').replace(/```/g, '').trim();
+                    }
                 }
 
                 if (!textJson) throw new Error("AI未能输出合法的回包字段");
@@ -1505,7 +1596,8 @@
                 showToast(`✨ 使用 ${activeProvider === 'gemini' ? 'Gemini' : 'DeepSeek'} 智能适配完成！`);
             } catch (error) {
                 console.error(error);
-                showToast("匹配出现问题，请确认密钥、用量或网络环境。");
+                // 把原本笼统的报错改为直接显示我们自定义的明确报错信息
+                showToast(`❌ ${error.message}`);
             } finally {
                 btn.disabled = false;
                 btnSpinner.classList.add('hidden');
@@ -1627,7 +1719,7 @@
             
             if (results.length === 0) {
                 resultsBox.innerHTML = `
-                    <div class="p-3 text-center text-xs text-stone-400 bg-stone-50 rounded-xl border border-dashed border-stone-200">
+                    <div class="p-3 text-center text-xs text-stone-400 bg-stone-50 dark:bg-stone-900 rounded-xl border border-dashed border-stone-200 dark:border-stone-700 transition-colors">
                         未在本地离线词典中检索到该词。试用下方“网页词典”联查吧
                     </div>
                 `;
@@ -1636,12 +1728,12 @@
 
             resultsBox.innerHTML = results.map(item => {
                 return `
-                    <div onclick="fillFromDictionary('${item.word}', '${item.kana}', '${item.meaning}')" class="p-3 bg-stone-50 hover:bg-amber-500/5 border border-stone-200/80 hover:border-amber-500/30 rounded-xl cursor-pointer transition text-left group">
+                    <div onclick="fillFromDictionary('${item.word}', '${item.kana}', '${item.meaning}')" class="p-3 bg-stone-50 dark:bg-stone-800 hover:bg-amber-500/5 dark:hover:bg-stone-700 border border-stone-200/80 dark:border-stone-700 hover:border-amber-500/30 dark:hover:border-stone-600 rounded-xl cursor-pointer transition-colors text-left group">
                         <div class="flex justify-between items-start">
-                            <span class="font-japanese text-sm font-semibold text-stone-800 group-hover:text-amber-900" lang="ja">${item.word}</span>
-                            <span class="font-japanese text-[11px] text-stone-400" lang="ja">${item.kana}</span>
+                            <span class="font-japanese text-sm font-semibold text-stone-800 dark:text-stone-200 group-hover:text-amber-900 dark:group-hover:text-amber-500 transition-colors" lang="ja">${item.word}</span>
+                            <span class="font-japanese text-[11px] text-stone-400 dark:text-stone-500 transition-colors" lang="ja">${item.kana}</span>
                         </div>
-                        <p class="text-xs text-stone-500 mt-1 truncate">${item.meaning}</p>
+                        <p class="text-xs text-stone-500 dark:text-stone-400 mt-1 truncate transition-colors">${item.meaning}</p>
                     </div>
                 `;
             }).join('');
@@ -1669,8 +1761,8 @@
                 url = `https://kotobank.jp/word/${encodeURIComponent(cleanQuery)}`;
             } else if (site === 'weblio_cjjc') {
                 url = `https://cjjc.weblio.jp/content/${encodeURIComponent(cleanQuery)}`;
-            } else if (site === 'nicodic') {
-                url = `https://dic.nicovideo.jp/s/al/a/${encodeURIComponent(cleanQuery)}`;
+            } else if (site === 'weblio_ruigo') { // 修改此处判断，跳转至 Weblio 類語辞典
+                url = `https://thesaurus.weblio.jp/content/${encodeURIComponent(cleanQuery)}`;
             }
 
             window.open(url, '_blank');
@@ -1716,7 +1808,7 @@
         function updateSyncStatus(msg, isError = false) {
             const statusEl = document.getElementById('sync-status');
             statusEl.innerText = msg;
-            statusEl.className = `text-center text-xs font-semibold py-2 ${isError ? 'text-red-500' : 'text-emerald-600'}`;
+            statusEl.className = `text-center text-xs font-semibold py-2 ${isError ? 'text-red-500 dark:text-red-400' : 'text-emerald-600 dark:text-teal-500'}`;
         }
 
         window.syncToCloud = async function() {
@@ -1790,7 +1882,7 @@
                 updateSyncStatus(`❌ 上传失败: ${err.message}`, true);
             } finally {
                 btn.disabled = false;
-                btn.innerHTML = `<svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg><span>☁️ ⬆️ 上传并覆盖至云端</span>`;
+                btn.innerHTML = `<svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg><span> ⬆️ 上传并覆盖至云端</span>`;
             }
         }
 
@@ -1854,7 +1946,7 @@
                 updateSyncStatus(`❌ 拉取失败: ${err.message}`, true);
             } finally {
                 btn.disabled = false;
-                btn.innerHTML = `<svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg><span>☁️ ⬇️ 从云端拉取并恢复本地</span>`;
+                btn.innerHTML = `<svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4-4m0 0l-4-4m4 4V4"></path></svg><span>⬇️ 从云端拉取并恢复本地</span>`;
             }
         }
 
@@ -1984,6 +2076,7 @@
                 
                 if (bracketRegex.test(cleanWord)) {
                     bracketRegex.lastIndex = 0; // 重置正则检索位置
+                    // 这里导出的文档通常不需要夜间模式类名，所以保持干净
                     formattedWord = cleanWord.replace(bracketRegex, '<ruby>$1<rt>$2</rt></ruby>');
                 } else if (item.kana && item.kana.trim() !== "") {
                     // 若无括号但有独立假名，则将整个词包裹
