@@ -18,7 +18,6 @@
         /* 1. 严格中日文字体区分 */
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "微软雅黑", sans-serif;
-            /* 移除写死的 background-color，交由 body 的 Tailwind class 统一管理日夜背景 */
         }
 
         /* 解决深色模式下背景色可能被覆盖的问题 */
@@ -171,22 +170,21 @@
                     <svg id="theme-icon-dark" class="w-5 h-5 block dark:hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"></path></svg>
                 </button>
 
-                <!-- ⚙️ AI设置 按钮 (手机端隐藏文字) -->
+                <!-- ⚙️ AI设置 按钮 -->
                 <button onclick="openAiSettingsModal()" class="px-2.5 py-1.5 sm:px-3 bg-stone-100 dark:bg-stone-800 hover:bg-stone-200 dark:hover:bg-stone-700 text-stone-700 dark:text-stone-300 border border-stone-300 dark:border-stone-700 rounded-full text-xs font-semibold flex items-center gap-1.5 transition active:scale-95 shadow-sm whitespace-nowrap" title="安全存储并一键切换 AI 服务商 (Gemini / DeepSeek)">
                     <span class="text-sm">⚙️</span>
                     <span class="hidden sm:inline">AI设置</span>
                 </button>
-                <!-- ☁️ 云同步按钮 (手机端隐藏文字) -->
+                <!-- ☁️ 云同步按钮 -->
                 <button onclick="openCloudSyncModal()" class="px-2.5 py-1.5 sm:px-3.5 bg-blue-50 dark:bg-blue-900/20 hover:bg-blue-100 dark:hover:bg-blue-900/40 text-blue-800 dark:text-blue-400 border border-blue-200 dark:border-blue-800/50 rounded-full text-xs font-semibold flex items-center gap-1.5 transition active:scale-95 shadow-sm whitespace-nowrap" title="使用 GitHub Gist 跨设备同步数据">
                     <span class="text-sm">☁️</span>
                     <span class="hidden sm:inline">云同步</span>
                 </button>
-                <!-- 查词典按钮 (移除 hidden，手机端显示图标) -->
+                <!-- 查词典按钮 -->
                 <button onclick="toggleDictionaryDrawer()" class="px-2.5 py-1.5 sm:px-3.5 bg-amber-500/10 dark:bg-amber-900/20 hover:bg-amber-500/20 dark:hover:bg-amber-900/40 text-amber-900 dark:text-amber-700 border border-amber-500/30 dark:border-amber-800/30 rounded-full text-xs font-semibold flex items-center gap-1.5 transition active:scale-95 shadow-sm whitespace-nowrap" title="打开内置离线词典与在线直达">
                     <span class="text-sm">🔍</span>
                     <span class="hidden sm:inline">查词典</span>
                 </button>
-                <!-- 统计文字：仅在平板/桌面端显示，防止手机端挤爆 -->
                 <span id="card-count" class="text-xs text-stone-500 dark:text-stone-400 font-medium hidden md:inline ml-2 whitespace-nowrap">正在加载...</span>
             </div>
         </div>
@@ -202,11 +200,10 @@
             </h2>
             <form id="vocab-form" class="space-y-5">
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
-                    <!-- 单词输入（绝对嵌合式定位排版，杜绝溢出重叠） -->
+                    <!-- 单词输入 -->
                     <div class="space-y-1.5">
                         <label class="block text-xs font-semibold text-stone-500 dark:text-stone-400">单词 (Word) <span class="text-red-500 dark:text-red-400">*</span></label>
                         <div class="relative w-full flex items-center">
-                            <!-- 预留 pr-20 以免遮挡文字，完美整合 AI 助手 -->
                             <input type="text" id="input-word" required lang="ja"
                                 placeholder="例：日本語 或 美[おい]しい" 
                                 class="font-japanese w-full pl-4 pr-20 py-3 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-700/20 dark:focus:ring-teal-700/30 focus:border-emerald-700 dark:focus:border-teal-700 transition duration-200 text-stone-800 dark:text-stone-200 placeholder-stone-400 dark:placeholder-stone-500">
@@ -251,10 +248,17 @@
                     <div class="text-xs text-stone-500 dark:text-stone-400 bg-stone-100/80 dark:bg-stone-700/30 rounded-lg p-3 border border-stone-200/50 dark:border-stone-600/50 leading-relaxed max-w-xl transition-colors">
                         💡 <strong>极速查假名：</strong>在单词框输入中文或汉字词后点击 <strong class="text-emerald-800 dark:text-teal-500">“匹配假名”</strong>，AI 仅自动匹配读音并转为精准的括号汉字对齐！
                     </div>
-                    <button type="submit" 
-                        class="w-full sm:w-auto px-8 py-3.5 bg-emerald-800 dark:bg-teal-700 hover:dark:bg-teal-600 text-white rounded-xl font-medium tracking-wider hover:bg-emerald-900 active:transform active:scale-95 transition-all duration-200 shadow-md shadow-emerald-900/10 dark:shadow-black/30 whitespace-nowrap self-end sm:self-center">
-                        添加卡片
-                    </button>
+                    
+                    <!-- 批量导入入口按钮 -->
+                    <div class="flex space-x-2 self-end sm:self-center shrink-0">
+                        <button type="button" onclick="openBatchImportModal()" class="px-5 py-3.5 bg-purple-100 dark:bg-purple-900/30 text-purple-800 dark:text-purple-400 hover:bg-purple-200 dark:hover:bg-purple-800/50 rounded-xl font-medium tracking-wider transition-all duration-200 shadow-sm whitespace-nowrap">
+                            📥 批量/拍照导入
+                        </button>
+                        <button type="submit" 
+                            class="px-8 py-3.5 bg-emerald-800 dark:bg-teal-700 hover:dark:bg-teal-600 text-white rounded-xl font-medium tracking-wider hover:bg-emerald-900 active:transform active:scale-95 transition-all duration-200 shadow-md shadow-emerald-900/10 dark:shadow-black/30 whitespace-nowrap">
+                            添加卡片
+                        </button>
+                    </div>
                 </div>
             </form>
         </section>
@@ -511,7 +515,6 @@
                         <span class="text-sm">🐼</span>
                         <span>Weblio中日</span>
                     </button>
-                    <!-- 修改：使用灵感灯泡图标，并保留之前修改为 weblio_ruigo 的函数调用 -->
                     <button onclick="openExternalSearch('weblio_ruigo')" class="p-2.5 bg-stone-50 dark:bg-stone-900 hover:bg-amber-500/10 dark:hover:bg-stone-700 hover:text-amber-900 dark:hover:text-amber-500 border border-stone-200 dark:border-stone-700 rounded-xl text-xs font-semibold text-stone-600 dark:text-stone-400 transition flex flex-col items-center justify-center space-y-1" title="Weblio類語辞典">
                         <span class="text-sm">💡</span>
                         <span>Weblio類語</span>
@@ -527,6 +530,48 @@
         </div>
     </div>
 
+    <!-- 📥 AI 智能批量导入 - 自定义模态框 -->
+    <div id="batch-import-modal" class="fixed inset-0 bg-black/60 flex items-center justify-center hidden z-50 p-4 backdrop-blur-sm transition-all duration-300">
+        <div class="bg-white dark:bg-stone-800 rounded-2xl border border-stone-200/80 dark:border-stone-700 p-6 w-full max-w-2xl shadow-2xl transform scale-95 transition-transform duration-200 flex flex-col max-h-[90vh]">
+            <h3 class="text-base font-bold text-stone-800 dark:text-stone-200 mb-4 flex items-center shrink-0">
+                <span class="w-1.5 h-4 bg-purple-600 dark:bg-purple-500 rounded-full mr-2"></span>
+                AI 智能批量/拍照导入
+            </h3>
+            <p class="text-xs text-stone-500 dark:text-stone-400 mb-3 leading-relaxed shrink-0">
+                请将原始笔记粘贴在下方，或<strong>直接上传手写/课本照片</strong>。AI 会充当<strong>严格的格式刷</strong>，自动提取词汇并生成卡片，绝不脑补多余内容。
+            </p>
+            
+            <!-- 新增：图片上传与预览组件 -->
+            <div class="flex items-center space-x-3 mb-3 shrink-0">
+                <input type="file" id="batch-image-upload" accept="image/*" class="hidden" onchange="handleBatchImageUpload(event)">
+                <button type="button" onclick="document.getElementById('batch-image-upload').click()" class="px-3.5 py-2 bg-stone-100 dark:bg-stone-900 hover:bg-stone-200 dark:hover:bg-stone-700 text-stone-700 dark:text-stone-300 rounded-lg text-xs font-semibold transition flex items-center space-x-1.5 border border-stone-200 dark:border-stone-700 shadow-sm active:scale-95">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+                    <span>上传笔记照片</span>
+                </button>
+                <div id="batch-image-preview-container" class="hidden relative group">
+                    <img id="batch-image-preview" class="h-9 w-9 object-cover rounded shadow-sm border border-purple-300 dark:border-purple-600">
+                    <button type="button" onclick="clearBatchImage()" class="absolute -top-1.5 -right-1.5 bg-red-500 hover:bg-red-600 text-white rounded-full w-4 h-4 flex items-center justify-center text-[10px] shadow transition-colors" title="移除图片">×</button>
+                </div>
+            </div>
+
+            <div class="flex-grow overflow-hidden relative mb-5">
+                <textarea id="batch-import-textarea" lang="ja" class="w-full h-full min-h-[220px] px-4 py-3 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20 dark:focus:ring-purple-500/40 focus:border-purple-500 dark:focus:border-purple-400 font-japanese text-stone-800 dark:text-stone-200 resize-none placeholder-stone-400 dark:placeholder-stone-500" placeholder="例如粘贴内容：
+美味しい 好吃 (このケーキは美味しいです)
+勉強 べんきょう 学习
+..."></textarea>
+            </div>
+            <div class="flex justify-end space-x-2.5 shrink-0">
+                <button type="button" onclick="closeBatchImportModal()" class="px-4 py-2 border border-stone-200 dark:border-stone-600 rounded-xl text-xs text-stone-500 dark:text-stone-400 hover:bg-stone-50 dark:hover:bg-stone-700 transition">取消</button>
+                <button type="button" id="batch-import-submit-btn" onclick="submitBatchImport()" class="px-5 py-2 bg-purple-700 hover:bg-purple-800 dark:bg-purple-600 dark:hover:bg-purple-500 text-white rounded-xl text-xs font-semibold transition shadow-sm flex items-center space-x-1.5">
+                    <span id="batch-import-spinner" class="hidden animate-spin">
+                        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                    </span>
+                    <span id="batch-import-btn-text">✨ 提取并生成卡片</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
     <!-- 1. 新建单词本 - 自定义模态框 -->
     <div id="new-notebook-modal" class="fixed inset-0 bg-black/60 flex items-center justify-center hidden z-50 p-4 backdrop-blur-sm transition-all duration-300">
         <div class="bg-white dark:bg-stone-800 rounded-2xl border border-stone-200/80 dark:border-stone-700 p-6 w-full max-w-md shadow-2xl transform scale-95 transition-transform">
@@ -534,7 +579,7 @@
                 <span class="w-1.5 h-4 bg-emerald-700 dark:bg-teal-600 rounded-full mr-2"></span>
                 新建单词分类
             </h3>
-            <p class="text-xs text-stone-500 dark:text-stone-400 mb-4">输入新单词本的主题名称：</p>
+            <p class="text-xs text-stone-500 dark:text-stone-400 mb-4">输入新单词本的主题名称（如：“迷宫饭”、“日常”、“考级”等）：</p>
             <input type="text" id="new-notebook-input" 
                 placeholder="例：迷宫饭" 
                 class="w-full px-4 py-3 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-700/20 dark:focus:ring-teal-700/30 focus:border-emerald-700 dark:focus:border-teal-700 transition duration-200 text-stone-800 dark:text-stone-200 mb-5 placeholder-stone-400 dark:placeholder-stone-500">
@@ -706,7 +751,7 @@
                     word: "歩[ある]く鎧[よろい]",
                     kana: "",
                     meaning: "会动的铠甲",
-                    example: "歩く鎧の中身は貝类に似ています。(会动的铠甲内部类似于贝类。)",
+                    example: "歩く鎧の中身は貝類に似ています。(会动的铠甲内部类似于贝类。)",
                     mastered: false
                 }
             ]
@@ -1143,6 +1188,7 @@
             // 4. 循环生成卡片元素
             grid.innerHTML = filteredList.map(item => {
                 const rubyBack = parseRubyText(item.word, item.kana);
+                // 正面仅保留纯汉字，防止剧透假名
                 const cleanWordFront = item.word.replace(/([^\s\[\]]+)\[([^\]]+)\]/g, '$1');
 
                 // 已掌握按钮通用逻辑 (支持等比例Padding和高度)
@@ -1161,12 +1207,12 @@
                     </button>
                 `;
 
-                // 🌟 分流：1. 平铺卡片视图 (应用 card-scale-box 独立缩放)
-                // ⚠️ 绝不添加 transition-colors 等类名，保留纯净的 3D 翻转 CSS
+                // 🌟 分流：1. 平铺卡片视图
+                // ⚠️ 重点防御：已彻底移除 card-inner、card-front 等核心 3D 容器的 transition-colors
                 if (layoutMode === "grid") {
                     return `
                         <div class="perspective group cursor-pointer card-scale-box" onclick="flipCard(this)">
-                            <div class="card-inner relative w-full h-full duration-500 rounded-2xl shadow-sm border border-stone-200/80 dark:border-stone-700/80 bg-white dark:bg-stone-800">
+                            <div class="card-inner relative w-full h-full rounded-2xl shadow-sm border border-stone-200/80 dark:border-stone-700/80 bg-white dark:bg-stone-800">
                                 
                                 <!-- 卡片正面 -->
                                 <div class="card-front absolute inset-0 w-full h-full flex flex-col justify-between rounded-2xl bg-white dark:bg-stone-800 overflow-hidden" style="padding: var(--card-pad);">
@@ -1179,7 +1225,7 @@
                                     </div>
                                     
                                     <div class="my-auto text-center w-full overflow-hidden">
-                                        <h3 class="font-japanese font-medium tracking-wide text-stone-800 dark:text-stone-200 leading-normal truncate transition-colors" lang="ja" style="font-size: var(--fs-title);">${cleanWordFront}</h3>
+                                        <h3 class="font-japanese font-medium tracking-wide text-stone-800 dark:text-stone-200 leading-normal truncate" lang="ja" style="font-size: var(--fs-title);">${cleanWordFront}</h3>
                                     </div>
                                     
                                     <div class="text-center shrink-0" style="margin-top: var(--spacing-gap);">
@@ -1429,39 +1475,261 @@
             showToast(`⚙️ AI服务商配置成功！当前激活：${selectedProvider === 'gemini' ? 'Google Gemini' : 'DeepSeek API'}`);
         }
 
+        // ==========================================
+        // 📥 新增：AI 智能批量导入功能 (严格格式刷模式 + OCR多模态识别)
+        // ==========================================
+        let currentBatchImageBase64 = null;
+        let currentBatchImageMimeType = null;
+
+        // 处理用户选择的图片并转换为 Base64
+        window.handleBatchImageUpload = function(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            if (!file.type.startsWith('image/')) {
+                showToast("请上传合法的图片文件！");
+                return;
+            }
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const result = e.target.result;
+                currentBatchImageBase64 = result.split(',')[1];
+                currentBatchImageMimeType = file.type;
+                document.getElementById('batch-image-preview').src = result;
+                document.getElementById('batch-image-preview-container').classList.remove('hidden');
+                document.getElementById('batch-import-textarea').placeholder = "✅ 图片已就绪。您可以将文本框留空，或者在此输入额外的约束补充说明...";
+            };
+            reader.readAsDataURL(file);
+        }
+
+        // 移除已选择的图片
+        window.clearBatchImage = function() {
+            currentBatchImageBase64 = null;
+            currentBatchImageMimeType = null;
+            document.getElementById('batch-image-upload').value = '';
+            document.getElementById('batch-image-preview-container').classList.add('hidden');
+            document.getElementById('batch-import-textarea').placeholder = "例如粘贴内容：\n美味しい 好吃 (このケーキは美味しいです)\n勉強 べんきょう 学习\n...";
+        }
+
+        window.openBatchImportModal = function() {
+            document.getElementById('batch-import-textarea').value = "";
+            clearBatchImage();
+            document.getElementById('batch-import-modal').classList.remove('hidden');
+        }
+
+        window.closeBatchImportModal = function() {
+            document.getElementById('batch-import-modal').classList.add('hidden');
+        }
+
+        window.submitBatchImport = async function() {
+            const textArea = document.getElementById('batch-import-textarea');
+            const textVal = textArea.value.trim();
+            if (!textVal && !currentBatchImageBase64) {
+                showToast("请先粘贴文本内容，或上传一张包含日语笔记的图片！");
+                return;
+            }
+
+            const activeProvider = localStorage.getItem('ai_provider') || 'gemini';
+            
+            // 安全阻断：DeepSeek API 目前原生不支持直接通过同一套接口无缝传入图片，强制指引使用具备多模态的 Gemini
+            if (currentBatchImageBase64 && activeProvider !== 'gemini') {
+                showToast("⚠️ 笔记的手写照片识别目前仅支持 Google Gemini！请先在右上角【⚙️ AI设置】中切换服务商。");
+                return;
+            }
+
+            const geminiKey = localStorage.getItem('gemini_api_key') || '';
+            const deepseekKey = localStorage.getItem('deepseek_api_key') || '';
+            const currentToken = activeProvider === 'gemini' ? geminiKey : deepseekKey;
+
+            if (!currentToken) {
+                showToast(`⚠️ 请先点击右上角“⚙️ AI设置”配置您的密钥！`);
+                openAiSettingsModal();
+                closeBatchImportModal();
+                return;
+            }
+
+            const btn = document.getElementById('batch-import-submit-btn');
+            const btnSpinner = document.getElementById('batch-import-spinner');
+            const btnText = document.getElementById('batch-import-btn-text');
+
+            btn.disabled = true;
+            btnSpinner.classList.remove('hidden');
+            btnText.innerText = "视觉提取处理中...";
+
+            // 严格设定 System Prompt，强迫 AI 仅仅扮演“格式化工具”的角色，绝不自动补充假名
+            const systemPrompt = `你是一个非常严谨的文本结构化工具。
+任务：从用户给定的杂乱笔记文本或【上传的手写/印刷图片】中，提取出所有日语单词条目，并转换为 JSON 格式。
+【绝对规则，不可违背】
+1. 只能提取原文或图片中已有的信息。绝对不要自行翻译、编造或补充缺失的假名、中文释义和例句！
+2. 如果原文中某个词没有提供假名、释义或例句，其对应的 JSON 字段必须直接留空字符串 ""。
+3. 如果原文包含例句，请将其提取到 example 字段。
+4. 必须输出纯净合法的 JSON 对象，禁止使用 Markdown 标记包裹。
+【输出格式】
+必须严格返回如下格式的 JSON 对象（不可有其他外层属性）：
+{
+  "items": [
+    {
+      "word": "提取的日文汉字或单词（必填）",
+      "kana": "提取的假名（若原文无，留空）",
+      "meaning": "提取的中文释义（若原文无，留空）",
+      "example": "提取的例句（若原文无，留空）"
+    }
+  ]
+}`;
+
+            try {
+                let url = "";
+                let fetchOptions = {};
+
+                if (activeProvider === 'gemini') {
+                    const model = "gemini-2.5-flash";
+                    url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${currentToken}`;
+                    
+                    // 构建支持多模态（图+文混合）的载荷 Parts
+                    const promptText = systemPrompt + "\n\n要处理的内容说明：\n" + (textVal || "请精准识别随附图片中的日语内容并提取。");
+                    const payloadParts = [{ text: promptText }];
+                    
+                    // 如果存在图片，把图片 Base64 数据原封不动塞进 InlineData 送给模型
+                    if (currentBatchImageBase64) {
+                        payloadParts.push({
+                            inlineData: {
+                                mimeType: currentBatchImageMimeType,
+                                data: currentBatchImageBase64
+                            }
+                        });
+                    }
+
+                    fetchOptions = {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            contents: [{ parts: payloadParts }],
+                            generationConfig: {
+                                responseMimeType: "application/json",
+                                responseSchema: {
+                                    type: "OBJECT",
+                                    properties: {
+                                        items: {
+                                            type: "ARRAY",
+                                            items: {
+                                                type: "OBJECT",
+                                                properties: {
+                                                    word: { type: "STRING" },
+                                                    kana: { type: "STRING" },
+                                                    meaning: { type: "STRING" },
+                                                    example: { type: "STRING" }
+                                                },
+                                                required: ["word", "kana", "meaning", "example"]
+                                            }
+                                        }
+                                    },
+                                    required: ["items"]
+                                }
+                            }
+                        })
+                    };
+                } else {
+                    url = "https://api.deepseek.com/chat/completions";
+                    fetchOptions = {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${currentToken}`
+                        },
+                        body: JSON.stringify({
+                            model: "deepseek-v4-flash",
+                            messages: [
+                                { role: "system", content: systemPrompt },
+                                { role: "user", content: `请提取以下文本，严格按含 items 字段的 JSON 对象返回。文本：\n${textVal}` }
+                            ],
+                            response_format: { type: "json_object" },
+                            stream: false
+                        })
+                    };
+                }
+
+                const responseData = await fetchWithBackoff(url, fetchOptions);
+                let textJson = "";
+
+                if (activeProvider === 'gemini') {
+                    textJson = responseData.candidates?.[0]?.content?.parts?.[0]?.text;
+                } else {
+                    textJson = responseData.choices?.[0]?.message?.content;
+                }
+
+                if (textJson) {
+                    textJson = textJson.replace(/```json/ig, '').replace(/```/g, '').trim();
+                }
+                if (!textJson) throw new Error("AI未能输出合法结果");
+
+                const parsedData = JSON.parse(textJson);
+                const itemsList = parsedData.items || [];
+
+                if (!Array.isArray(itemsList) || itemsList.length === 0) {
+                    throw new Error("未能从图片或文本中提取到任何有效单词。");
+                }
+
+                // 批量执行查重与导入
+                if (!notebooks[activeNotebook]) notebooks[activeNotebook] = [];
+                let successCount = 0;
+                let dupCount = 0;
+
+                const getCleanWord = (w) => w.replace(/([^\s\[\]]+)\[([^\]]+)\]/g, '$1');
+
+                // 翻转数组以保证导入顺序符合用户从上到下的阅读习惯
+                itemsList.reverse().forEach(item => {
+                    if(!item.word) return;
+                    const cleanInputWord = getCleanWord(item.word.trim());
+                    const isDuplicate = notebooks[activeNotebook].some(card => getCleanWord(card.word) === cleanInputWord);
+                    
+                    if (isDuplicate) {
+                        dupCount++;
+                    } else {
+                        notebooks[activeNotebook].unshift({
+                            id: Date.now().toString() + Math.random().toString(36).substr(2, 5),
+                            word: item.word.trim(),
+                            kana: (item.kana || "").trim(),
+                            meaning: (item.meaning || "").trim(),
+                            example: (item.example || "").trim(),
+                            mastered: false
+                        });
+                        successCount++;
+                    }
+                });
+
+                saveData();
+                renderCards();
+                renderNotebookTabs();
+                closeBatchImportModal();
+
+                if (dupCount > 0) {
+                    showToast(`✨ 提取完毕！成功提取 ${successCount} 个新词，自动跳过了 ${dupCount} 个库内重复词。`);
+                } else {
+                    showToast(`✨ 提取成功！从图片/笔记中为您制作了 ${successCount} 张新卡片。`);
+                }
+
+            } catch (error) {
+                console.error(error);
+                showToast(`❌ 提取失败: ${error.message}`);
+            } finally {
+                btn.disabled = false;
+                btnSpinner.classList.add('hidden');
+                btnText.innerText = "✨ 提取并生成卡片";
+            }
+        }
+
 
         // ==========================================
         // ✨ 改动：全新重构的智能多通道假名自适应匹配模块 (兼容 Gemini 与 DeepSeek 两种网络接口)
         // ==========================================
-        async function fetchWithBackoff(url, options, retries = 3, delay = 1000) {
+        async function fetchWithBackoff(url, options, retries = 5, delay = 1000) {
             for (let i = 0; i < retries; i++) {
                 try {
                     const response = await fetch(url, options);
                     if (response.ok) {
                         return await response.json();
                     }
-                    
-                    // 根据不同的状态码精准分析并生成大白话错误提示
-                    if (response.status === 401) {
-                        throw new Error("401 权限报错：您的 API 密钥无效或已过期，请检查是否填错。");
-                    } else if (response.status === 402) {
-                        throw new Error("402 欠费报错：您的 API 账户余额不足，请充值。");
-                    } else if (response.status === 429) {
-                        const msg = "429 频率超限：操作太频繁，或新账号免费额度/余额已耗尽被拦截。";
-                        if (i === retries - 1) throw new Error(msg);
-                        throw new Error(msg); // 抛出给下面的 catch 触发重试机制
-                    } else if (response.status === 400) {
-                        throw new Error("400 请求报错：请求格式被服务器拒绝，可能是不支持该模型。");
-                    } else {
-                        const msg = `API 返回未知错误代码: ${response.status}`;
-                        if (i === retries - 1) throw new Error(msg);
-                        throw new Error(msg);
-                    }
+                    throw new Error(`API 返回错误代码: ${response.status}`);
                 } catch (error) {
-                    // 遇到不需要重试的致命错误（401密钥错, 400格式错, 402欠费），直接停止重试并抛出
-                    if (error.message.includes("401") || error.message.includes("400") || error.message.includes("402")) {
-                        throw error;
-                    }
                     if (i === retries - 1) throw error;
                     await new Promise(res => setTimeout(res, delay));
                     delay *= 2;
@@ -1503,45 +1771,33 @@
             btnSpinner.classList.remove('hidden');
             btnText.innerText = "匹配中...";
 
-            // 还原为你之前正常运行版本的极其严苛的精准匹配假名 System Prompt
+            // 严苛的核心 System Prompt
             const systemPrompt = `你是一个非常专业且极致克制的日语研究助手。
 任务：接收用户输入的日语词汇，仅仅生成读音平假名，以及带汉字振假名括号的对齐文本。
-注意：不要尝试生成例句、不要生成中文解释。
+注意：不要尝试生成例句、不要生成中文解释。必须返回一个纯净的 JSON 字符串（不要有任何 Markdown \`\`\`json 包裹）。
 要求：
-1. [重要] 生成精准的“振假名括号对齐文本” (word_with_bracket) 中括号[ ]里的假名必须只标注在对应的日文汉字上，绝对不能黏连周围的平假名。
+1. 生成精准的“振假名括号对齐文本” (word_with_bracket) 中括号[ ]里的假名必须只标注在对应的日文汉字上，绝对不能黏连周围的平假名。
    - 示例: 输入 '日本語'，返回 '日本[にほん]語[ご]'。
    - 示例: 输入 '食べる'，返回 '食[た]べる' (假名 'べ' 和 'る' 不能塞进括号中)。
-   - 示例: 输入 '美味しい'，返回 '美[お]味[い]しい'。`;
+   - 示例: 输入 '美味しい'，返回 '美[お]味[い]しい'。
+必须严格返回如下 JSON 格式：{"kana": "纯假名", "word_with_bracket": "带括号格式"}`;
 
             try {
                 let url = "";
                 let fetchOptions = {};
 
                 if (activeProvider === 'gemini') {
-                    // 完美还原之前的 Google API 强类型请求格式
+                    // 修复版：采用最基础、兼容性最强的 Gemini 请求格式
                     const model = "gemini-2.5-flash";
                     url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${currentToken}`;
-                    
-                    const payload = {
-                        contents: [{ parts: [{ text: wordVal }] }],
-                        systemInstruction: { parts: [{ text: systemPrompt }] },
-                        generationConfig: {
-                            responseMimeType: "application/json",
-                            responseSchema: {
-                                type: "OBJECT",
-                                properties: {
-                                    kana: { type: "STRING", description: "该词的纯平假名/片假名读音，如: にほんご" },
-                                    word_with_bracket: { type: "STRING", description: "带精准括号振假名标注的词，如: 日本[にほん]語[ご]" }
-                                },
-                                required: ["kana", "word_with_bracket"]
-                            }
-                        }
-                    };
-
                     fetchOptions = {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(payload)
+                        body: JSON.stringify({
+                            contents: [{ 
+                                parts: [{ text: systemPrompt + "\n\n目标词汇：" + wordVal }] 
+                            }]
+                        })
                     };
                 } else {
                     // 付费级通用 DeepSeek 模型通用请求管道
@@ -1553,7 +1809,7 @@
                             'Authorization': `Bearer ${currentToken}`
                         },
                         body: JSON.stringify({
-                            model: "deepseek-chat",
+                            model: "deepseek-v4-flash",
                             messages: [
                                 { role: "system", content: systemPrompt },
                                 { role: "user", content: `请解析以下日语词汇，以标准 JSON 返回字段 'kana' 和 'word_with_bracket'。目标词汇：${wordVal}` }
@@ -1568,13 +1824,13 @@
                 let textJson = "";
 
                 if (activeProvider === 'gemini') {
-                    // 还原为原来的干净读取方式
                     textJson = responseData.candidates?.[0]?.content?.parts?.[0]?.text;
+                    // 由于降级为普通文本请求，Gemini 有时会顽固地加上 Markdown 代码块包裹，需要手动剥离
+                    if (textJson) {
+                         textJson = textJson.replace(/```json/g, '').replace(/```/g, '').trim();
+                    }
                 } else {
                     textJson = responseData.choices?.[0]?.message?.content;
-                    if (textJson) {
-                         textJson = textJson.replace(/```json/ig, '').replace(/```/g, '').trim();
-                    }
                 }
 
                 if (!textJson) throw new Error("AI未能输出合法的回包字段");
@@ -1593,8 +1849,7 @@
                 showToast(`✨ 使用 ${activeProvider === 'gemini' ? 'Gemini' : 'DeepSeek'} 智能适配完成！`);
             } catch (error) {
                 console.error(error);
-                // 把原本笼统的报错改为直接显示我们自定义的明确报错信息
-                showToast(`❌ ${error.message}`);
+                showToast("匹配出现问题，请确认密钥、用量或网络环境。");
             } finally {
                 btn.disabled = false;
                 btnSpinner.classList.add('hidden');
@@ -1758,7 +2013,7 @@
                 url = `https://kotobank.jp/word/${encodeURIComponent(cleanQuery)}`;
             } else if (site === 'weblio_cjjc') {
                 url = `https://cjjc.weblio.jp/content/${encodeURIComponent(cleanQuery)}`;
-            } else if (site === 'weblio_ruigo') { // 修改此处判断，跳转至 Weblio 類語辞典
+            } else if (site === 'weblio_ruigo') {
                 url = `https://thesaurus.weblio.jp/content/${encodeURIComponent(cleanQuery)}`;
             }
 
