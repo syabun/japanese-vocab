@@ -143,6 +143,117 @@
             --fs-tiny: calc(0.625rem * var(--card-scale, 1.0));
             --spacing-gap: calc(0.75rem * var(--card-scale, 1.0));
         }
+
+        /* Back to top button */
+        #back-to-top-btn {
+            position: fixed;
+            right: 1.5rem;
+            bottom: 1.5rem;
+            z-index: 50;
+            width: 3rem;
+            height: 3rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border: 1px solid #d6d3d1;
+            border-radius: 9999px;
+            background: rgba(255, 255, 255, 0.92);
+            color: #44403c;
+            box-shadow: 0 8px 20px rgba(68, 64, 60, 0.18);
+            opacity: 0;
+            visibility: hidden;
+            transform: translateY(0.75rem);
+            transition: opacity 0.2s ease, transform 0.2s ease, visibility 0.2s;
+        }
+        #back-to-top-btn.is-visible {
+            opacity: 1;
+            visibility: visible;
+            transform: translateY(0);
+        }
+        #back-to-top-btn:hover {
+            background: #f5f5f4;
+            transform: translateY(-0.15rem);
+        }
+        .dark #back-to-top-btn {
+            border-color: #57534e;
+            background: rgba(41, 37, 36, 0.92);
+            color: #e7e5e4;
+        }
+        .dark #back-to-top-btn:hover { background: #44403c; }
+        @media (max-width: 640px) {
+            #back-to-top-btn { right: 1rem; bottom: 1rem; }
+        }
+
+        /* One-click clear buttons for text inputs and textareas */
+        .input-clear-wrap {
+            position: relative;
+            width: 100%;
+            min-width: 0;
+        }
+        .input-clear-wrap > input,
+        .input-clear-wrap > textarea {
+            padding-right: 2.75rem !important;
+        }
+        .input-clear-btn {
+            position: absolute;
+            right: 0.65rem;
+            top: 50%;
+            z-index: 10;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 2rem;
+            height: 2rem;
+            padding: 0;
+            border: 0;
+            border-radius: 9999px;
+            background: #e7e5e4;
+            color: #78716c;
+            font-size: 0;
+            line-height: 0;
+            cursor: pointer;
+            appearance: none;
+            -webkit-appearance: none;
+            opacity: 0;
+            pointer-events: none;
+            transform: translateY(-50%) scale(0.9);
+            transition: opacity 0.15s ease, transform 0.15s ease, background 0.15s ease;
+        }
+        .input-clear-wrap.has-content .input-clear-btn,
+        .has-content .input-clear-inline {
+            opacity: 1;
+            pointer-events: auto;
+            transform: translateY(-50%) scale(1);
+        }
+        .input-clear-wrap > textarea + .input-clear-btn {
+            top: 0.75rem;
+            transform: scale(0.9);
+        }
+        .input-clear-wrap.has-content > textarea + .input-clear-btn {
+            transform: scale(1);
+        }
+        .input-clear-btn svg { width: 1rem; height: 1rem; pointer-events: none; }
+        .input-clear-btn:hover { background: #d6d3d1; color: #44403c; }
+        .dark .input-clear-btn { background: #57534e; color: #d6d3d1; }
+        .dark .input-clear-btn:hover { background: #78716c; color: #fff; }
+        .input-clear-inline {
+            position: absolute;
+            right: 4.7rem;
+            top: 50%;
+            z-index: 10;
+        }
+
+        /* 缩小时优先压缩留白，并允许每张卡片依内容增加高度 */
+        .perspective {
+            height: var(--adaptive-card-height, var(--card-height)) !important;
+        }
+        #cards-grid[data-compact="true"] .card-scale-box {
+            --card-pad: calc(0.9rem * var(--card-scale, 1.0));
+            --spacing-gap: calc(0.45rem * var(--card-scale, 1.0));
+        }
+        #cards-grid[data-compact="true"] ruby {
+            line-height: 1.55;
+        }
     </style>
     <!-- 预加载脚本：根据本地存储或系统偏好设置立即应用暗黑模式，防止闪屏 -->
     <script>
@@ -340,8 +451,8 @@
         <!-- 工具栏第二行 (导出 Markdown) -->
         <section class="flex flex-wrap items-center gap-2.5 mb-8 border-t border-stone-200/60 dark:border-stone-800 pt-4 transition-colors">
             <!-- 快捷功能：全部翻面 / 全部还原 -->
-            <button id="toggle-all-btn" class="px-3 sm:px-3.5 py-2 border border-stone-200 dark:border-stone-700 hover:border-stone-300 dark:hover:border-stone-600 hover:bg-stone-50 dark:hover:bg-stone-800 rounded-xl text-xs text-stone-600 dark:text-stone-300 transition whitespace-nowrap flex items-center space-x-1.5 shadow-sm">
-                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 1121.21 8H18.5"></path></svg>
+            <button id="toggle-all-btn" class="px-3 sm:px-3.5 py-2 border border-stone-200 dark:border-stone-700 hover:border-stone-300 dark:hover:border-stone-600 hover:bg-stone-50 dark:hover:bg-stone-800 rounded-xl text-xs text-stone-600 dark:text-stone-300 transition whitespace-nowrap flex items-center gap-1.5 shadow-sm">
+                <svg class="w-3.5 h-3.5 flex-none" style="width: 0.875rem; height: 0.875rem; min-width: 0.875rem; overflow: visible; transform: translateY(3px);" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 1121.21 8H18.5"></path></svg>
                 <span class="hidden sm:inline">全卡翻面</span>
                 <span class="sm:hidden">翻面</span>
             </button>
@@ -694,6 +805,10 @@
         <p class="font-mono">© 2026 Vibe Coding Project</p>
     </footer>
 
+
+    <button id="back-to-top-btn" type="button" aria-label="Back to top" title="Back to top">
+        <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m18 15-6-6-6 6"/></svg>
+    </button>
     <script>
         // ==========================================
         // 🌓 夜间模式控制逻辑
@@ -963,7 +1078,10 @@
             // 基础物理大小：宽 300px，高 320px
             grid.style.setProperty('--card-width', (300 * scale) + 'px');
             grid.style.setProperty('--card-height', (320 * scale) + 'px');
+            grid.dataset.compact = scale < 0.9 ? 'true' : 'false';
             document.getElementById('scale-value').innerText = Math.round(scale * 100) + '%';
+            window.clearTimeout(window.cardScaleFitTimer);
+            window.cardScaleFitTimer = window.setTimeout(fitCardHeights, 240);
         }
 
         // 9. 渲染单词本分类标签
@@ -1306,7 +1424,34 @@
                 }
             }).join('');
 
+            fitCardHeights();
             updateHeaderCount();
+        }
+
+        // 根据正反面内容所需空间调整卡片高度；只有异常长内容才保留内部滚动。
+        function fitCardHeights() {
+            const grid = document.getElementById('cards-grid');
+            if (!grid || layoutMode !== 'grid') return;
+
+            const baseHeight = parseFloat(getComputedStyle(grid).getPropertyValue('--card-height')) || 320;
+            const cards = grid.querySelectorAll('.perspective');
+            cards.forEach(card => card.style.removeProperty('--adaptive-card-height'));
+
+            window.requestAnimationFrame(() => {
+                cards.forEach(card => {
+                    const scrollAreas = card.querySelectorAll('.card-content-scroll');
+                    let extraHeight = 0;
+                    scrollAreas.forEach(area => {
+                        extraHeight = Math.max(extraHeight, area.scrollHeight - area.clientHeight);
+                    });
+
+                    if (extraHeight > 1) {
+                        const desiredHeight = Math.ceil(baseHeight + extraHeight + 12);
+                        const maxHeight = Math.max(420, Math.round(baseHeight * 2.25));
+                        card.style.setProperty('--adaptive-card-height', Math.min(desiredHeight, maxHeight) + 'px');
+                    }
+                });
+            });
         }
 
         // 12. 点击翻牌
@@ -2368,6 +2513,90 @@
         window.onload = function() {
             loadData();
         }
+        // Back to top button
+        const backToTopBtn = document.getElementById('back-to-top-btn');
+        const updateBackToTopButton = () => {
+            backToTopBtn.classList.toggle('is-visible', window.scrollY > 360);
+        };
+        window.addEventListener('scroll', updateBackToTopButton, { passive: true });
+        backToTopBtn.addEventListener('click', () => {
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        });
+        updateBackToTopButton();
+        // Add a one-click clear button to every editable text field.
+        function setupInputClearButtons() {
+            const fields = document.querySelectorAll('input:not([type="hidden"]):not([type="file"]):not([type="range"]):not([type="radio"]):not([type="checkbox"]):not([type="button"]):not([type="submit"]), textarea');
+
+            fields.forEach((field) => {
+                if (field.dataset.clearButtonReady === 'true') return;
+                field.dataset.clearButtonReady = 'true';
+
+                const clearButton = document.createElement('button');
+                clearButton.type = 'button';
+                clearButton.className = 'input-clear-btn';
+                clearButton.setAttribute('aria-label', '清除內容');
+                clearButton.title = '清除內容';
+                clearButton.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>';
+
+                const hasExistingRightAction = field.id === 'input-word' || field.id === 'edit-word';
+                let container;
+                if (hasExistingRightAction) {
+                    container = field.parentElement;
+                    clearButton.classList.add('input-clear-inline');
+                    field.style.paddingRight = '6.5rem';
+                    container.appendChild(clearButton);
+                } else {
+                    const wrapper = document.createElement('div');
+                    wrapper.className = 'input-clear-wrap';
+                    field.parentNode.insertBefore(wrapper, field);
+                    wrapper.appendChild(field);
+                    wrapper.appendChild(clearButton);
+                    container = wrapper;
+                }
+
+                const updateVisibility = () => {
+                    const hasContent = field.value.length > 0;
+                    container.classList.toggle('has-content', hasContent);
+                };
+                field.addEventListener('input', updateVisibility);
+                field.addEventListener('change', updateVisibility);
+                field.addEventListener('focus', updateVisibility);
+                const clearField = () => {
+                    field.value = '';
+                    field.focus();
+                    updateVisibility();
+
+                    const notifyFieldChange = () => {
+                        field.dispatchEvent(new Event('input', { bubbles: true }));
+                        field.dispatchEvent(new Event('change', { bubbles: true }));
+                    };
+                    // Clearing a search can rebuild every card. Let the cleared input paint first.
+                    if (field.id === 'search-input') {
+                        window.setTimeout(notifyFieldChange, 32);
+                    } else {
+                        notifyFieldChange();
+                    }
+                };
+                // Clear on press for a responsive mouse/touch interaction, without firing the search render twice.
+                let clearedOnPointerDown = false;
+                clearButton.addEventListener('pointerdown', (event) => {
+                    event.preventDefault();
+                    clearedOnPointerDown = true;
+                    clearField();
+                    window.setTimeout(() => { clearedOnPointerDown = false; }, 0);
+                });
+                clearButton.addEventListener('click', (event) => {
+                    event.preventDefault();
+                    if (clearedOnPointerDown) {
+                        clearedOnPointerDown = false;
+                        return;
+                    }
+                    clearField();
+                });
+                updateVisibility();
+            });
+        }
+        setupInputClearButtons();
     </script>
 </body>
 </html>
