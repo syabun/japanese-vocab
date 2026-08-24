@@ -52,11 +52,13 @@
         .perspective {
             perspective: 1000px;
             height: var(--card-height) !important;
-            transition: height 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            transition: none;
         }
         .card-inner {
             transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1);
             transform-style: preserve-3d;
+            will-change: transform;
+            -webkit-transform-style: preserve-3d;
         }
         .card-inner.is-flipped {
             transform: rotateY(180deg);
@@ -64,6 +66,9 @@
         .card-front, .card-back {
             backface-visibility: hidden;
             -webkit-backface-visibility: hidden;
+        }
+        .card-front {
+            transform: rotateY(0deg);
         }
         .card-back {
             transform: rotateY(180deg);
@@ -895,6 +900,8 @@
         let lastDeletedCard = null; // 用于单卡撤销的备忘变量
         let lastMasteredCardId = null; // 用于快速撤销掌握状态的备忘变量
         let db = null; // IndexedDB 实例
+        const searchIndexCache = new Map();
+        let searchDebounceTimer = null;
 
         // 2. 从本地存储加载数据（带向下合并保护机制）
         function loadData() {
@@ -966,6 +973,63 @@
             }
             
             return word;
+        }
+
+        // Search uses display text, reconstructed reading, kana, meaning, and example as one corpus.
+        function getCleanWordText(word) {
+            return String(word || '').replace(/([^\s\[\]\u3040-\u309f]+)\[([^\]]+)\]/g, '$1');
+        }
+
+        function getRubyReading(word) {
+            return String(word || '').replace(/([^\s\[\]\u3040-\u309f]+)\[([^\]]+)\]/g, '$2');
+        }
+
+        function normalizeSearchText(value) {
+            return String(value || '')
+                .normalize('NFKC')
+                .toLowerCase()
+                .replace(/[\u200B-\u200D\uFEFF]/g, '')
+                .replace(/[\u30A1-\u30F6]/g, char => String.fromCharCode(char.charCodeAt(0) - 0x60))
+                .replace(/\s+/g, ' ')
+                .trim();
+        }
+
+        function getSearchTerms(query) {
+            return normalizeSearchText(query).split(' ').filter(Boolean);
+        }
+
+        function getCachedSearchCorpus(item) {
+            const sourceKey = [item.word, item.kana, item.meaning, item.example].join('\u0001');
+            const cacheKey = item.id || sourceKey;
+            const cached = searchIndexCache.get(cacheKey);
+            if (cached && cached.sourceKey === sourceKey) return cached.corpus;
+
+            const corpus = normalizeSearchText([
+                getCleanWordText(item.word),
+                getRubyReading(item.word),
+                item.kana,
+                item.meaning,
+                item.example
+            ].join(' '));
+            searchIndexCache.set(cacheKey, { sourceKey, corpus });
+            return corpus;
+        }
+
+        function matchesSearchTerms(item, terms) {
+            if (terms.length === 0) return true;
+            const corpus = getCachedSearchCorpus(item);
+            return terms.every(term => corpus.includes(term));
+        }
+
+        function isSearchActive() {
+            return getSearchTerms(document.getElementById('search-input').value).length > 0;
+        }
+
+        function cancelCardHeightFitting() {
+            if (window.cardFitFrame) window.cancelAnimationFrame(window.cardFitFrame);
+            if (window.cardRowFitFrame) window.cancelAnimationFrame(window.cardRowFitFrame);
+            window.cardFitFrame = null;
+            window.cardRowFitFrame = null;
         }
 
         // 5. 智能分离例句中的日文和中文翻译，以便基于缩放因子动态优雅排版
@@ -1252,7 +1316,8 @@
         function renderCards() {
             const grid = document.getElementById('cards-grid');
             const emptyState = document.getElementById('empty-state');
-            const searchVal = document.getElementById('search-input').value.toLowerCase().trim();
+            const searchVal = document.getElementById('search-input').value;
+            const searchTerms = getSearchTerms(searchVal);
             
             const currentList = notebooks[activeNotebook] || [];
 
@@ -1266,13 +1331,7 @@
             });
 
             // 2. 过滤搜索关键词
-            filteredList = filteredList.filter(item => {
-                if (!searchVal) return true;
-                return item.word.toLowerCase().includes(searchVal) || 
-                       (item.kana && item.kana.toLowerCase().includes(searchVal)) || 
-                       item.meaning.toLowerCase().includes(searchVal) ||
-                       (item.example && item.example.toLowerCase().includes(searchVal));
-            });
+            filteredList = filteredList.filter(item => matchesSearchTerms(item, searchTerms));
 
             // 3. 空状态展示
             if (filteredList.length === 0) {
@@ -1329,7 +1388,7 @@
                 // ⚠️ 重点防御：已彻底移除 card-inner、card-front 等核心 3D 容器的 transition-colors
                 if (layoutMode === "grid") {
                     return `
-                        <div class="perspective group cursor-pointer card-scale-box" onclick="flipCard(this)">
+                        <div class="perspective group cursor-pointer card-scale-box" data-has-example="${item.example ? 'true' : 'false'}" onclick="flipCard(this)">
                             <div class="card-inner relative w-full h-full rounded-2xl shadow-sm border border-stone-200/80 dark:border-stone-700/80 bg-white dark:bg-stone-800">
                                 
                                 <!-- 卡片正面 -->
@@ -1343,7 +1402,7 @@
                                     </div>
                                     
                                     <div class="my-auto text-center w-full overflow-hidden">
-                                        <h3 class="font-japanese font-medium tracking-wide text-stone-800 dark:text-stone-200 leading-normal truncate" lang="ja" style="font-size: var(--fs-title);">${cleanWordFront}</h3>
+                                        <h3 class="font-japanese font-medium tracking-wide text-stone-800 dark:text-stone-200 leading-normal break-words" lang="ja" style="font-size: var(--fs-title); overflow-wrap: anywhere; word-break: normal;">${cleanWordFront}</h3>
                                     </div>
                                     
                                     <div class="text-center shrink-0" style="margin-top: var(--spacing-gap);">
@@ -1424,36 +1483,71 @@
                 }
             }).join('');
 
-            fitCardHeights();
+            if (searchTerms.length === 0) {
+                fitCardHeights();
+            } else {
+                cancelCardHeightFitting();
+            }
             updateHeaderCount();
         }
 
-        // 根据正反面内容所需空间调整卡片高度；只有异常长内容才保留内部滚动。
+        // 三档卡片高度后，再统一同一行的高度；不同的行仍可保持紧凑。
         function fitCardHeights() {
             const grid = document.getElementById('cards-grid');
-            if (!grid || layoutMode !== 'grid') return;
+            if (!grid || layoutMode !== 'grid' || isSearchActive()) return;
 
-            const baseHeight = parseFloat(getComputedStyle(grid).getPropertyValue('--card-height')) || 320;
-            const cards = grid.querySelectorAll('.perspective');
-            cards.forEach(card => card.style.removeProperty('--adaptive-card-height'));
+            const scale = parseFloat(getComputedStyle(grid).getPropertyValue('--card-scale')) || 1;
+            const baseHeight = Math.round(320 * scale);
+            const exampleHeight = Math.round(380 * scale);
+            const maxHeight = Math.round(500 * scale);
+            const cards = Array.from(grid.querySelectorAll('.perspective'));
 
-            window.requestAnimationFrame(() => {
+            cancelCardHeightFitting();
+
+            // First assign a predictable tier. Clicking a card never calls this function.
+            cards.forEach(card => {
+                const tierHeight = card.dataset.hasExample === 'true' ? exampleHeight : baseHeight;
+                card.style.setProperty('--adaptive-card-height', tierHeight + 'px');
+            });
+
+            window.cardFitFrame = window.requestAnimationFrame(() => {
+                if (isSearchActive()) return;
+                // Promote only cards whose front or back actually overflows its own tier.
                 cards.forEach(card => {
+                    const front = card.querySelector('.card-front');
                     const scrollAreas = card.querySelectorAll('.card-content-scroll');
-                    let extraHeight = 0;
+                    let overflow = front ? Math.max(0, front.scrollHeight - front.clientHeight) : 0;
                     scrollAreas.forEach(area => {
-                        extraHeight = Math.max(extraHeight, area.scrollHeight - area.clientHeight);
+                        overflow = Math.max(overflow, area.scrollHeight - area.clientHeight);
                     });
 
-                    if (extraHeight > 1) {
-                        const desiredHeight = Math.ceil(baseHeight + extraHeight + 12);
-                        const maxHeight = Math.max(420, Math.round(baseHeight * 2.25));
-                        card.style.setProperty('--adaptive-card-height', Math.min(desiredHeight, maxHeight) + 'px');
+                    if (overflow > 1) {
+                        const currentHeight = card.dataset.hasExample === 'true' ? exampleHeight : baseHeight;
+                        const neededHeight = Math.ceil(currentHeight + overflow + 12);
+                        card.style.setProperty('--adaptive-card-height', Math.min(neededHeight, maxHeight) + 'px');
                     }
+                });
+
+                // A second frame reads final positions, then makes only siblings in the same row equal height.
+                window.cardRowFitFrame = window.requestAnimationFrame(() => {
+                    if (isSearchActive()) return;
+                    const rows = new Map();
+                    cards.forEach(card => {
+                        const rowKey = Math.round(card.offsetTop);
+                        const cardHeight = card.getBoundingClientRect().height;
+                        const row = rows.get(rowKey) || { height: 0, cards: [] };
+                        row.height = Math.max(row.height, cardHeight);
+                        row.cards.push(card);
+                        rows.set(rowKey, row);
+                    });
+                    rows.forEach(row => {
+                        row.cards.forEach(card => {
+                            card.style.setProperty('--adaptive-card-height', Math.ceil(row.height) + 'px');
+                        });
+                    });
                 });
             });
         }
-
         // 12. 点击翻牌
         window.flipCard = function(element) {
             const inner = element.querySelector('.card-inner');
@@ -2402,8 +2496,15 @@
             showToast("成功添加词卡到当前单词本！");
         });
 
-        // 实时搜索过滤功能
-        document.getElementById('search-input').addEventListener('input', renderCards);
+        // Delay repeated redraws while typing; clearing the search stays immediate.
+        document.getElementById('search-input').addEventListener('input', function(event) {
+            window.clearTimeout(searchDebounceTimer);
+            if (event.target.value === '') {
+                renderCards();
+                return;
+            }
+            searchDebounceTimer = window.setTimeout(renderCards, 120);
+        });
 
         // 一键翻面
         let allFlipped = false;
