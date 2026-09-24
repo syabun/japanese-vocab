@@ -37,7 +37,7 @@
         #cards-grid {
             --card-scale: 1.0;
             --card-width: 300px;
-            --card-height: 320px;
+            --card-height: 380px;
         }
         
         /* 3. 物理自适应网格 (卡片缩小时，列数会自动增加) */
@@ -57,7 +57,6 @@
         .card-inner {
             transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1);
             transform-style: preserve-3d;
-            will-change: transform;
             -webkit-transform-style: preserve-3d;
         }
         .card-inner.is-flipped {
@@ -72,6 +71,25 @@
         }
         .card-back {
             transform: rotateY(180deg);
+        }
+
+        /* Touch devices use a lower-memory fade instead of keeping 3D card layers alive. */
+        @media (hover: none) and (pointer: coarse) {
+            .perspective { perspective: none; }
+            .card-inner, .card-inner.is-flipped {
+                transform: none;
+                transform-style: flat;
+                transition: none;
+            }
+            .card-front, .card-back {
+                transform: none;
+                backface-visibility: visible;
+                -webkit-backface-visibility: visible;
+                transition: opacity 0.18s ease;
+            }
+            .card-back { opacity: 0; pointer-events: none; }
+            .card-inner.is-flipped .card-front { opacity: 0; pointer-events: none; }
+            .card-inner.is-flipped .card-back { opacity: 1; pointer-events: auto; }
         }
         
         /* 4. 优雅的 HTML ruby 假名微调，确保假名在头顶完美对齐且永不遮挡 */
@@ -248,10 +266,6 @@
             z-index: 10;
         }
 
-        /* 缩小时优先压缩留白，并允许每张卡片依内容增加高度 */
-        .perspective {
-            height: var(--adaptive-card-height, var(--card-height)) !important;
-        }
         #cards-grid[data-compact="true"] .card-scale-box {
             --card-pad: calc(0.9rem * var(--card-scale, 1.0));
             --spacing-gap: calc(0.45rem * var(--card-scale, 1.0));
@@ -381,7 +395,15 @@
 
         <!-- 单词本管理器 -->
         <section class="mb-6">
-            <div class="text-xs font-bold text-stone-400 dark:text-stone-500 tracking-wider uppercase mb-2.5 transition-colors">我的单词本</div>
+            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-2.5">
+                <div class="text-xs font-bold text-stone-400 dark:text-stone-500 tracking-wider uppercase transition-colors">我的单词本</div>
+                <div class="relative w-full sm:w-80">
+                    <input type="text" id="search-input" placeholder="全局搜索所有单词本..." class="w-full pl-9 pr-4 py-2 bg-white dark:bg-stone-800 border border-stone-200 dark:border-stone-700 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700/20 dark:focus:ring-teal-700/30 focus:border-emerald-700 dark:focus:border-teal-700 text-stone-800 dark:text-stone-200 placeholder-stone-400 dark:placeholder-stone-500 transition-colors">
+                    <span class="absolute left-3 top-2.5 text-emerald-700 dark:text-teal-500">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                    </span>
+                </div>
+            </div>
             <div class="flex items-center justify-between border-b border-stone-200 dark:border-stone-700 pb-2 gap-2 sm:gap-4 transition-colors">
                 <!-- 单词本横向排列标签页 -->
                 <div id="notebook-tabs" class="flex items-center space-x-2 overflow-x-auto scrollbar-hide py-1 flex-grow">
@@ -443,14 +465,6 @@
                 </div>
             </div>
             
-            <div class="relative w-full sm:w-72">
-                <input type="text" id="search-input" 
-                    placeholder="搜索单词、假名或释义..." 
-                    class="w-full pl-9 pr-4 py-2.5 sm:py-2 bg-white dark:bg-stone-800 border border-stone-200 dark:border-stone-700 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700/20 dark:focus:ring-teal-700/30 focus:border-emerald-700 dark:focus:border-teal-700 text-stone-800 dark:text-stone-200 placeholder-stone-400 dark:placeholder-stone-500 transition-colors">
-                <span class="absolute left-3 top-3 sm:top-2.5 text-stone-400 dark:text-stone-500">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
-                </span>
-            </div>
         </section>
 
         <!-- 工具栏第二行 (导出 Markdown) -->
@@ -479,6 +493,13 @@
         <!-- 单词卡片展示网格 (使用 .adaptive-grid 代替原本固定Cols，实现列宽自动适配) -->
         <div id="cards-grid" class="adaptive-grid">
             <!-- 卡片由 JS 动态生成 -->
+        </div>
+
+        <div id="load-more-container" class="hidden flex-col items-center gap-2 pt-6">
+            <p id="load-more-status" class="text-xs text-stone-400 dark:text-stone-500"></p>
+            <button type="button" onclick="loadMoreCards()" class="px-5 py-2.5 rounded-xl border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-800 hover:bg-stone-50 dark:hover:bg-stone-700 text-xs font-semibold text-stone-600 dark:text-stone-300 transition shadow-sm">
+                加载更多卡片
+            </button>
         </div>
 
         <!-- 空状态提示 -->
@@ -750,6 +771,7 @@
             </h3>
             <form id="edit-vocab-form" class="space-y-4">
                 <input type="hidden" id="edit-card-id">
+                <input type="hidden" id="edit-card-notebook">
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <!-- 编辑状态下的单词输入 -->
                     <div class="space-y-1 flex flex-col justify-between">
@@ -781,6 +803,12 @@
                     <label class="block text-[11px] font-bold text-stone-500 dark:text-stone-400">例句 (Example Sentence)</label>
                     <textarea id="edit-example" rows="2" lang="ja"
                         class="w-full px-3 py-2 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:focus:ring-blue-500/40 focus:border-blue-500 dark:focus:border-blue-400 text-sm resize-none text-stone-800 dark:text-stone-200"></textarea>
+                </div>
+
+                <div class="flex items-center gap-2 rounded-lg bg-stone-50 dark:bg-stone-900/60 border border-stone-200 dark:border-stone-700 p-2.5">
+                    <label class="shrink-0 text-[11px] font-bold text-stone-500 dark:text-stone-400">移动到</label>
+                    <select id="edit-move-target" class="min-w-0 flex-1 bg-transparent text-xs text-stone-700 dark:text-stone-200 focus:outline-none"></select>
+                    <button type="button" id="move-card-btn" onclick="moveEditedCard()" class="shrink-0 px-3 py-1.5 rounded-lg bg-emerald-700 text-white text-xs font-semibold hover:bg-emerald-800 disabled:opacity-40 disabled:cursor-not-allowed transition">移动</button>
                 </div>
                 
                 <div class="flex items-center justify-between pt-3 border-t border-stone-100 dark:border-stone-700 transition-colors">
@@ -902,6 +930,9 @@
         let db = null; // IndexedDB 实例
         const searchIndexCache = new Map();
         let searchDebounceTimer = null;
+        const cardsPerBatch = 24;
+        let visibleCardLimit = cardsPerBatch;
+        let lastCardRenderContext = '';
 
         // 2. 从本地存储加载数据（带向下合并保护机制）
         function loadData() {
@@ -1021,15 +1052,13 @@
             return terms.every(term => corpus.includes(term));
         }
 
-        function isSearchActive() {
-            return getSearchTerms(document.getElementById('search-input').value).length > 0;
-        }
-
-        function cancelCardHeightFitting() {
-            if (window.cardFitFrame) window.cancelAnimationFrame(window.cardFitFrame);
-            if (window.cardRowFitFrame) window.cancelAnimationFrame(window.cardRowFitFrame);
-            window.cardFitFrame = null;
-            window.cardRowFitFrame = null;
+        function hasGlobalDuplicate(word, excludedCardId = null) {
+            const identity = normalizeSearchText(getCleanWordText(word)).replace(/\s+/g, '');
+            if (!identity) return false;
+            return Object.values(notebooks).some(cards => cards.some(card => {
+                if (excludedCardId && card.id === excludedCardId) return false;
+                return normalizeSearchText(getCleanWordText(card.word)).replace(/\s+/g, '') === identity;
+            }));
         }
 
         // 5. 智能分离例句中的日文和中文翻译，以便基于缩放因子动态优雅排版
@@ -1139,13 +1168,11 @@
             const scale = parseFloat(val);
             const grid = document.getElementById('cards-grid');
             grid.style.setProperty('--card-scale', scale);
-            // 基础物理大小：宽 300px，高 320px
+            // 固定比例缩放：宽 300px，高 380px
             grid.style.setProperty('--card-width', (300 * scale) + 'px');
-            grid.style.setProperty('--card-height', (320 * scale) + 'px');
+            grid.style.setProperty('--card-height', (380 * scale) + 'px');
             grid.dataset.compact = scale < 0.9 ? 'true' : 'false';
             document.getElementById('scale-value').innerText = Math.round(scale * 100) + '%';
-            window.clearTimeout(window.cardScaleFitTimer);
-            window.cardScaleFitTimer = window.setTimeout(fitCardHeights, 240);
         }
 
         // 9. 渲染单词本分类标签
@@ -1319,10 +1346,19 @@
             const searchVal = document.getElementById('search-input').value;
             const searchTerms = getSearchTerms(searchVal);
             
-            const currentList = notebooks[activeNotebook] || [];
+            const isGlobalSearch = searchTerms.length > 0;
+            const currentList = isGlobalSearch
+                ? Object.entries(notebooks).flatMap(([notebookName, cards]) => cards.map(card => ({ ...card, sourceNotebook: notebookName })))
+                : (notebooks[activeNotebook] || []).map(card => ({ ...card, sourceNotebook: activeNotebook }));
+            const renderContext = JSON.stringify([activeNotebook, cardFilter, layoutMode, normalizeSearchText(searchVal)]);
+            if (renderContext !== lastCardRenderContext) {
+                visibleCardLimit = cardsPerBatch;
+                lastCardRenderContext = renderContext;
+            }
 
             // 1. 过滤掌握状态
             let filteredList = currentList.filter(item => {
+                if (isGlobalSearch) return true;
                 if (cardFilter === "review") {
                     return !item.mastered;
                 } else {
@@ -1332,10 +1368,13 @@
 
             // 2. 过滤搜索关键词
             filteredList = filteredList.filter(item => matchesSearchTerms(item, searchTerms));
+            const totalCardCount = filteredList.length;
+            const visibleCards = filteredList.slice(0, visibleCardLimit);
 
             // 3. 空状态展示
             if (filteredList.length === 0) {
                 grid.innerHTML = '';
+                updateLoadMoreControl(0);
                 emptyState.classList.remove('hidden');
                 emptyState.classList.add('flex');
                 
@@ -1363,14 +1402,18 @@
             }
 
             // 4. 循环生成卡片元素
-            grid.innerHTML = filteredList.map(item => {
+            grid.innerHTML = visibleCards.map(item => {
                 const rubyBack = parseRubyText(item.word, item.kana);
                 // 正面仅保留纯汉字，防止剧透假名
                 const cleanWordFront = item.word.replace(/([^\s\[\]]+)\[([^\]]+)\]/g, '$1');
+                const sourceNotebook = item.sourceNotebook || activeNotebook;
+                const notebookBadgeHtml = isGlobalSearch
+                    ? `<span class="px-1.5 py-0.5 rounded-md bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-300 font-medium" style="font-size: var(--fs-tiny);">${sourceNotebook} · ${item.mastered ? '已掌握' : '复习中'}</span>`
+                    : '';
 
                 // 已掌握按钮通用逻辑 (支持等比例Padding和高度)
                 const masterButtonHtml = `
-                    <button onclick="toggleCardMastered(event, '${item.id}')" class="${item.mastered ? 'text-emerald-600 dark:text-teal-400 hover:text-emerald-700 dark:hover:text-teal-300 bg-emerald-50 dark:bg-teal-900/30' : 'text-stone-300 dark:text-stone-600 hover:text-emerald-600 dark:hover:text-teal-400 hover:bg-emerald-50 dark:hover:bg-stone-700/50'} rounded-lg transition duration-150 shrink-0 flex items-center justify-center" style="padding: calc(0.375rem * var(--card-scale, 1.0));" title="${item.mastered ? '移回复习中' : '标记为已掌握'}">
+                    <button onclick="toggleCardMastered(event, '${item.id}', '${sourceNotebook}')" class="${item.mastered ? 'text-emerald-600 dark:text-teal-400 hover:text-emerald-700 dark:hover:text-teal-300 bg-emerald-50 dark:bg-teal-900/30' : 'text-stone-300 dark:text-stone-600 hover:text-emerald-600 dark:hover:text-teal-400 hover:bg-emerald-50 dark:hover:bg-stone-700/50'} rounded-lg transition duration-150 shrink-0 flex items-center justify-center" style="padding: calc(0.375rem * var(--card-scale, 1.0));" title="${item.mastered ? '移回复习中' : '标记为已掌握'}">
                         <svg class="w-4 h-4" style="width: calc(1rem * var(--card-scale, 1.0)); height: calc(1rem * var(--card-scale, 1.0));" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="${item.mastered ? '2.2' : '2.5'}" d="${item.mastered ? 'M10 19l-7-7m0 0l7-7m-7 7h18' : 'M5 13l4 4L19 7'}"></path>
                         </svg>
@@ -1379,7 +1422,7 @@
 
                 // 编辑按钮通用逻辑
                 const editButtonHtml = `
-                    <button onclick="openEditCardModal(event, '${item.id}')" class="text-stone-300 dark:text-stone-600 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-stone-700/50 rounded-lg transition duration-150 shrink-0 flex items-center justify-center" style="padding: calc(0.375rem * var(--card-scale, 1.0));" title="修改卡片内容">
+                    <button onclick="openEditCardModal(event, '${item.id}', '${sourceNotebook}')" class="text-stone-300 dark:text-stone-600 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-stone-700/50 rounded-lg transition duration-150 shrink-0 flex items-center justify-center" style="padding: calc(0.375rem * var(--card-scale, 1.0));" title="修改卡片内容">
                         <svg class="w-4 h-4" style="width: calc(1rem * var(--card-scale, 1.0)); height: calc(1rem * var(--card-scale, 1.0));" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg>
                     </button>
                 `;
@@ -1394,15 +1437,20 @@
                                 <!-- 卡片正面 -->
                                 <div class="card-front absolute inset-0 w-full h-full flex flex-col justify-between rounded-2xl bg-white dark:bg-stone-800 overflow-hidden" style="padding: var(--card-pad);">
                                     <div class="flex justify-between items-center w-full shrink-0" style="margin-bottom: var(--spacing-gap);">
-                                        <span class="tracking-widest text-stone-300 dark:text-stone-600 font-mono font-bold" style="font-size: var(--fs-tiny);">FRONT · 点击翻面</span>
+                                        <div class="flex items-center gap-1.5 min-w-0">
+                                            <span class="tracking-widest text-stone-300 dark:text-stone-600 font-mono font-bold" style="font-size: var(--fs-tiny);">FRONT · 点击翻面</span>
+                                            ${notebookBadgeHtml}
+                                        </div>
                                         <div class="flex items-center space-x-1">
                                             ${editButtonHtml}
                                             ${masterButtonHtml}
                                         </div>
                                     </div>
                                     
-                                    <div class="my-auto text-center w-full overflow-hidden">
-                                        <h3 class="font-japanese font-medium tracking-wide text-stone-800 dark:text-stone-200 leading-normal break-words" lang="ja" style="font-size: var(--fs-title); overflow-wrap: anywhere; word-break: normal;">${cleanWordFront}</h3>
+                                    <div class="flex-1 min-h-0 flex items-center w-full">
+                                        <div class="card-content-scroll w-full max-h-full text-center">
+                                            <h3 class="font-japanese font-medium tracking-wide text-stone-800 dark:text-stone-200 leading-normal break-words" lang="ja" style="font-size: var(--fs-title); overflow-wrap: anywhere; word-break: normal;">${cleanWordFront}</h3>
+                                        </div>
                                     </div>
                                     
                                     <div class="text-center shrink-0" style="margin-top: var(--spacing-gap);">
@@ -1413,7 +1461,10 @@
                                 <!-- 卡片背面 (引入防溢出安全区域与局部柔和滚动阻尼) -->
                                 <div class="card-back absolute inset-0 w-full h-full flex flex-col justify-between rounded-2xl bg-[#faf9f4] dark:bg-[#201d1c] border border-stone-200/50 dark:border-stone-700/50 overflow-hidden" style="padding: var(--card-pad);">
                                     <div class="flex justify-between items-center w-full shrink-0" style="margin-bottom: var(--spacing-gap);">
-                                        <span class="tracking-widest text-emerald-800/40 dark:text-teal-600/40 font-mono font-bold" style="font-size: var(--fs-tiny);">BACK · 解释与例句</span>
+                                        <div class="flex items-center gap-1.5 min-w-0">
+                                            <span class="tracking-widest text-emerald-800/40 dark:text-teal-600/40 font-mono font-bold" style="font-size: var(--fs-tiny);">BACK · 解释与例句</span>
+                                            ${notebookBadgeHtml}
+                                        </div>
                                         <div class="flex items-center space-x-1">
                                             ${editButtonHtml}
                                             ${masterButtonHtml}
@@ -1453,6 +1504,7 @@
                                 <div class="flex items-center space-x-3">
                                     <span class="w-1.5 h-1.5 bg-emerald-800 dark:bg-teal-500 rounded-full transition-colors"></span>
                                     <span class="font-japanese text-base font-semibold text-stone-800 dark:text-stone-200 tracking-wide transition-colors" lang="ja">${cleanWordFront}</span>
+                                    ${isGlobalSearch ? `<span class="text-[10px] text-blue-600 dark:text-blue-300 bg-blue-50 dark:bg-blue-900/30 px-1.5 py-0.5 rounded-md">${sourceNotebook} · ${item.mastered ? '已掌握' : '复习中'}</span>` : ''}
                                 </div>
                                 <div class="flex items-center space-x-2.5">
                                     ${editButtonHtml}
@@ -1483,71 +1535,30 @@
                 }
             }).join('');
 
-            if (searchTerms.length === 0) {
-                fitCardHeights();
-            } else {
-                cancelCardHeightFitting();
-            }
+            updateLoadMoreControl(totalCardCount);
             updateHeaderCount();
         }
 
-        // 三档卡片高度后，再统一同一行的高度；不同的行仍可保持紧凑。
-        function fitCardHeights() {
-            const grid = document.getElementById('cards-grid');
-            if (!grid || layoutMode !== 'grid' || isSearchActive()) return;
-
-            const scale = parseFloat(getComputedStyle(grid).getPropertyValue('--card-scale')) || 1;
-            const baseHeight = Math.round(320 * scale);
-            const exampleHeight = Math.round(380 * scale);
-            const maxHeight = Math.round(500 * scale);
-            const cards = Array.from(grid.querySelectorAll('.perspective'));
-
-            cancelCardHeightFitting();
-
-            // First assign a predictable tier. Clicking a card never calls this function.
-            cards.forEach(card => {
-                const tierHeight = card.dataset.hasExample === 'true' ? exampleHeight : baseHeight;
-                card.style.setProperty('--adaptive-card-height', tierHeight + 'px');
-            });
-
-            window.cardFitFrame = window.requestAnimationFrame(() => {
-                if (isSearchActive()) return;
-                // Promote only cards whose front or back actually overflows its own tier.
-                cards.forEach(card => {
-                    const front = card.querySelector('.card-front');
-                    const scrollAreas = card.querySelectorAll('.card-content-scroll');
-                    let overflow = front ? Math.max(0, front.scrollHeight - front.clientHeight) : 0;
-                    scrollAreas.forEach(area => {
-                        overflow = Math.max(overflow, area.scrollHeight - area.clientHeight);
-                    });
-
-                    if (overflow > 1) {
-                        const currentHeight = card.dataset.hasExample === 'true' ? exampleHeight : baseHeight;
-                        const neededHeight = Math.ceil(currentHeight + overflow + 12);
-                        card.style.setProperty('--adaptive-card-height', Math.min(neededHeight, maxHeight) + 'px');
-                    }
-                });
-
-                // A second frame reads final positions, then makes only siblings in the same row equal height.
-                window.cardRowFitFrame = window.requestAnimationFrame(() => {
-                    if (isSearchActive()) return;
-                    const rows = new Map();
-                    cards.forEach(card => {
-                        const rowKey = Math.round(card.offsetTop);
-                        const cardHeight = card.getBoundingClientRect().height;
-                        const row = rows.get(rowKey) || { height: 0, cards: [] };
-                        row.height = Math.max(row.height, cardHeight);
-                        row.cards.push(card);
-                        rows.set(rowKey, row);
-                    });
-                    rows.forEach(row => {
-                        row.cards.forEach(card => {
-                            card.style.setProperty('--adaptive-card-height', Math.ceil(row.height) + 'px');
-                        });
-                    });
-                });
-            });
+        function updateLoadMoreControl(totalCardCount) {
+            const container = document.getElementById('load-more-container');
+            const status = document.getElementById('load-more-status');
+            const visibleCount = Math.min(visibleCardLimit, totalCardCount);
+            if (totalCardCount <= visibleCardLimit) {
+                container.classList.add('hidden');
+                container.classList.remove('flex');
+                return;
+            }
+            status.textContent = `已显示 ${visibleCount} / ${totalCardCount} 张卡片`;
+            container.classList.remove('hidden');
+            container.classList.add('flex');
         }
+
+        window.loadMoreCards = function() {
+            visibleCardLimit += cardsPerBatch;
+            renderCards();
+        }
+
+        // Fixed card heights intentionally avoid runtime content measurement.
         // 12. 点击翻牌
         window.flipCard = function(element) {
             const inner = element.querySelector('.card-inner');
@@ -1555,18 +1566,26 @@
         }
 
         // 13. 编辑卡片功能区
-        window.openEditCardModal = function(event, cardId) {
+        window.openEditCardModal = function(event, cardId, notebookName = activeNotebook) {
             event.stopPropagation(); // 防止翻牌和折叠
             
-            const currentList = notebooks[activeNotebook] || [];
+            const currentList = notebooks[notebookName] || [];
             const card = currentList.find(c => c.id === cardId);
             if (!card) return;
 
             document.getElementById('edit-card-id').value = card.id;
+            document.getElementById('edit-card-notebook').value = notebookName;
             document.getElementById('edit-word').value = card.word;
             document.getElementById('edit-kana').value = card.kana;
             document.getElementById('edit-meaning').value = card.meaning;
             document.getElementById('edit-example').value = card.example || '';
+
+            const targetSelect = document.getElementById('edit-move-target');
+            const moveButton = document.getElementById('move-card-btn');
+            const targets = Object.keys(notebooks).filter(name => name !== notebookName);
+            targetSelect.innerHTML = targets.map(name => `<option value="${name}">${name}</option>`).join('');
+            targetSelect.disabled = targets.length === 0;
+            moveButton.disabled = targets.length === 0;
 
             const modal = document.getElementById('edit-card-modal');
             modal.classList.remove('hidden');
@@ -1577,16 +1596,50 @@
             modal.classList.add('hidden');
         }
 
+        window.moveEditedCard = function() {
+            const cardId = document.getElementById('edit-card-id').value;
+            const sourceNotebook = document.getElementById('edit-card-notebook').value || activeNotebook;
+            const targetNotebook = document.getElementById('edit-move-target').value;
+            const sourceList = notebooks[sourceNotebook] || [];
+            const cardIndex = sourceList.findIndex(card => card.id === cardId);
+            if (cardIndex < 0 || !targetNotebook || !notebooks[targetNotebook]) return;
+
+            const card = sourceList[cardIndex];
+            const updatedWord = document.getElementById('edit-word').value.trim();
+            if (hasGlobalDuplicate(updatedWord, card.id)) {
+                showToast('全局单词库中已存在同一个单词，无法移动。');
+                return;
+            }
+
+            card.word = updatedWord;
+            card.kana = document.getElementById('edit-kana').value.trim();
+            card.meaning = document.getElementById('edit-meaning').value.trim();
+            card.example = document.getElementById('edit-example').value.trim();
+            sourceList.splice(cardIndex, 1);
+            notebooks[targetNotebook].unshift(card);
+            saveData();
+            renderNotebookTabs();
+            renderCards();
+            closeEditCardModal();
+            showToast(`已移动到【${targetNotebook}】单词本。`);
+        }
+
         // 保存对卡片内容的修改
         document.getElementById('edit-vocab-form').addEventListener('submit', function(e) {
             e.preventDefault();
 
             const cardId = document.getElementById('edit-card-id').value;
-            const currentList = notebooks[activeNotebook] || [];
+            const editNotebook = document.getElementById('edit-card-notebook').value || activeNotebook;
+            const currentList = notebooks[editNotebook] || [];
             const card = currentList.find(c => c.id === cardId);
 
             if (card) {
-                card.word = document.getElementById('edit-word').value.trim();
+                const updatedWord = document.getElementById('edit-word').value.trim();
+                if (hasGlobalDuplicate(updatedWord, card.id)) {
+                    showToast('全局单词库中已存在同一个单词，无法保存。');
+                    return;
+                }
+                card.word = updatedWord;
                 card.kana = document.getElementById('edit-kana').value.trim();
                 card.meaning = document.getElementById('edit-meaning').value.trim();
                 card.example = document.getElementById('edit-example').value.trim();
@@ -1601,14 +1654,15 @@
         // 彻底从系统中删除本卡片
         window.submitDeleteCardPermanently = function() {
             const cardId = document.getElementById('edit-card-id').value;
-            const currentList = notebooks[activeNotebook] || [];
+            const editNotebook = document.getElementById('edit-card-notebook').value || activeNotebook;
+            const currentList = notebooks[editNotebook] || [];
             const cardIndex = currentList.findIndex(c => c.id === cardId);
 
             if (cardIndex > -1) {
                 lastDeletedCard = {
                     card: currentList[cardIndex],
                     index: cardIndex,
-                    notebook: activeNotebook
+                    notebook: editNotebook
                 };
 
                 currentList.splice(cardIndex, 1);
@@ -1632,10 +1686,10 @@
         }
 
         // 14. 标记为“已掌握”或“撤回到复习”的逻辑
-        window.toggleCardMastered = function(event, cardId) {
+        window.toggleCardMastered = function(event, cardId, notebookName = activeNotebook) {
             event.stopPropagation(); // 防止翻转与折叠
 
-            const currentList = notebooks[activeNotebook] || [];
+            const currentList = notebooks[notebookName] || [];
             const card = currentList.find(c => c.id === cardId);
 
             if (card) {
@@ -1649,7 +1703,7 @@
 
                 const statusMessage = oldStatus ? "已重新移回【复习中】单词册" : "已归档到【已掌握】归档库！";
                 showToast(statusMessage, () => {
-                    const list = notebooks[activeNotebook] || [];
+                    const list = notebooks[notebookName] || [];
                     const found = list.find(c => c.id === lastMasteredCardId);
                     if (found) {
                         found.mastered = oldStatus;
