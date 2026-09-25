@@ -37,6 +37,12 @@ body.dark {
     height: var(--card-height) !important;
     transition: none;
 }
+/* 屏外卡片跳过布局与绘制计算，长列表滚动更流畅；
+   contain-intrinsic-size 用卡片实际高度作占位估算，避免滚动条跳动 */
+.adaptive-grid > .perspective {
+    content-visibility: auto;
+    contain-intrinsic-size: auto var(--card-height, 380px);
+}
 .card-inner {
     transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1);
     transform-style: preserve-3d;
@@ -187,8 +193,47 @@ rt {
     color: #e7e5e4;
 }
 .dark #back-to-top-btn:hover { background: #44403c; }
+
+/* Floating shuffle button（叠在 back-to-top 正上方，同款样式） */
+#shuffle-fab {
+    position: fixed;
+    right: 1.5rem;
+    bottom: 5rem; /* back-to-top(1.5rem) + 按钮高(3rem) + 间距(0.5rem) */
+    z-index: 50;
+    width: 3rem;
+    height: 3rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid #d6d3d1;
+    border-radius: 9999px;
+    background: rgba(255, 255, 255, 0.92);
+    color: #44403c;
+    box-shadow: 0 8px 20px rgba(68, 64, 60, 0.18);
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(0.75rem);
+    transition: opacity 0.2s ease, transform 0.2s ease, visibility 0.2s;
+}
+#shuffle-fab.is-visible {
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0);
+}
+#shuffle-fab:hover {
+    background: #f5f5f4;
+    transform: translateY(-0.15rem);
+}
+.dark #shuffle-fab {
+    border-color: #57534e;
+    background: rgba(41, 37, 36, 0.92);
+    color: #e7e5e4;
+}
+.dark #shuffle-fab:hover { background: #44403c; }
+
 @media (max-width: 640px) {
     #back-to-top-btn { right: 1rem; bottom: 1rem; }
+    #shuffle-fab { right: 1rem; bottom: 4.5rem; }
 }
 
 /* One-click clear buttons for text inputs and textareas */

@@ -79,6 +79,48 @@ const searchIndexCache = new Map();
 let searchDebounceTimer = null;
 const cardsPerBatch = 24;
 let visibleCardLimit = cardsPerBatch;
+
+// 内存乱序状态：null 表示尚未洗牌；数组为当前上下文下的乱序 id 清单
+// 仅存在于内存，刷新页面即失效——localStorage 永远保持用户写入时的顺序
+let shuffleOrder = null;
+let shuffleContextKey = '';
+
+function fisherYatesShuffle(arr) {
+    for (let i = arr.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    return arr;
+}
+
+// 乱序上下文 key：故意不含搜索词，避免打字搜索触发重洗
+function getShuffleContextKey() {
+    return JSON.stringify([activeNotebook, cardFilter, activeTagFilters]);
+}
+
+// 校验乱序清单与当前词条集合：
+// - 词条"减少"（标记掌握后消失、搜索收窄等）宽容处理，不打乱既有顺序；
+// - 出现"新面孔"（新增单词、切换单词本/筛选）才整体重洗；
+// - 首次渲染（shuffleOrder 为 null）自动洗牌，实现"打开页面就是乱序"。
+function ensureShuffleOrder(filteredList) {
+    const contextKey = getShuffleContextKey();
+    if (!shuffleOrder || shuffleContextKey !== contextKey) {
+        shuffleContextKey = contextKey;
+        shuffleOrder = fisherYatesShuffle(filteredList.map(item => item.id));
+        return;
+    }
+    const orderSet = new Set(shuffleOrder);
+    if (filteredList.some(item => !orderSet.has(item.id))) {
+        shuffleOrder = fisherYatesShuffle(filteredList.map(item => item.id));
+    }
+}
+
+// 强制重洗当前视图（纯内存操作，不触碰 notebooks 数据与 localStorage）
+function reshuffleDisplay() {
+    shuffleOrder = null; // 置空后由 ensureShuffleOrder 重建
+    visibleCardLimit = cardsPerBatch;
+    renderCards();
+}
 let lastCardRenderContext = '';
 
 // 2. 从本地存储加载数据（带向下合并保护机制）
@@ -139,9 +181,17 @@ function saveData() {
     updateHeaderCount();
 }
 
+// 4. bracket 语法共享正则（工厂函数，每次返回新实例避免 /g 的 lastIndex 串扰）
+// 基座字符集：排除空白、方括号、平假名(぀-ゟ)与片假名(゠-ヿ)，
+// 使送り仮名（食[た]べる）和片假名前缀（タクシー運転手[うんてんしゅ]）都不会被吸进 ruby 基座；
+// 但豁免小写 ヵ(㊵)/ヶ(㊶)——汉字熟语成分（如 一ヵ月[いっかげつ]、霞ヶ関[かすみがせき]），需留在基座内。
+function rubyBracketRegex() {
+    return /([^\s\[\]\u3040-\u309f\u30a0-\u30f4\u30f7-\u30ff]+)\[([^\]]+)\]/g;
+}
+
 // 4. 解析 bracket 语法格式。比如：日[び] -> <ruby>日<rt>び</rt></ruby> (严格限制平假名粘连，精准对齐)
 function parseRubyText(word, fallbackKana) {
-    const bracketRegex = /([^\s\[\]\u3040-\u309f]+)\[([^\]]+)\]/g;
+    const bracketRegex = rubyBracketRegex();
     
     if (bracketRegex.test(word)) {
         bracketRegex.lastIndex = 0;
@@ -158,11 +208,11 @@ function parseRubyText(word, fallbackKana) {
 
 // Search uses display text, reconstructed reading, kana, meaning, and example as one corpus.
 function getCleanWordText(word) {
-    return String(word || '').replace(/([^\s\[\]\u3040-\u309f]+)\[([^\]]+)\]/g, '$1');
+    return String(word || '').replace(rubyBracketRegex(), '$1');
 }
 
 function getRubyReading(word) {
-    return String(word || '').replace(/([^\s\[\]\u3040-\u309f]+)\[([^\]]+)\]/g, '$2');
+    return String(word || '').replace(rubyBracketRegex(), '$2');
 }
 
 function normalizeSearchText(value) {
@@ -637,6 +687,13 @@ function getDisplayedCards() {
 
     // 2. 过滤搜索关键词
     filteredList = filteredList.filter(item => matchesSearchTerms(item, searchTerms));
+
+    // 3. 应用内存乱序（不落盘；localStorage 中的写入顺序永远不变）
+    ensureShuffleOrder(filteredList);
+    if (shuffleOrder) {
+        const rank = new Map(shuffleOrder.map((id, idx) => [id, idx]));
+        filteredList = filteredList.slice().sort((a, b) => (rank.get(a.id) ?? 1e9) - (rank.get(b.id) ?? 1e9));
+    }
     return { filteredList, isGlobalSearch, isGlobalScope };
 }
 
@@ -694,8 +751,15 @@ function renderCards() {
         grid.className = "grid grid-cols-1 gap-3 max-w-2xl mx-auto";
     }
 
-    // 4. 循环生成卡片元素
-    grid.innerHTML = visibleCards.map(item => {
+    // 4. 循环生成卡片元素（全量渲染路径；加载更多走增量追加，见 loadMoreCards）
+    grid.innerHTML = visibleCards.map(item => buildCardHtml(item, isGlobalScope)).join('');
+
+    updateLoadMoreControl(totalCardCount);
+    updateHeaderCount();
+}
+
+// 4.1 单张卡片 HTML 组装（全量渲染与增量追加两条路径共用）
+function buildCardHtml(item, isGlobalScope) {
         const rubyBack = parseRubyText(item.word, item.kana);
         // 正面仅保留纯汉字，防止剧透假名
         const cleanWordFront = item.word.replace(/([^\s\[\]]+)\[([^\]]+)\]/g, '$1');
@@ -841,10 +905,6 @@ function renderCards() {
                 </div>
             `;
         }
-    }).join('');
-
-    updateLoadMoreControl(totalCardCount);
-    updateHeaderCount();
 }
 
 function updateLoadMoreControl(totalCardCount) {
@@ -862,8 +922,17 @@ function updateLoadMoreControl(totalCardCount) {
 }
 
 window.loadMoreCards = function() {
-    visibleCardLimit += cardsPerBatch;
-    renderCards();
+    // 增量追加：只渲染新增的一批，已渲卡片（含翻面状态）原样保留
+    const grid = document.getElementById('cards-grid');
+    const { filteredList, isGlobalScope } = getDisplayedCards();
+    const prevLimit = visibleCardLimit;
+    visibleCardLimit = Math.min(visibleCardLimit + cardsPerBatch, filteredList.length);
+    const newCards = filteredList.slice(prevLimit, visibleCardLimit);
+    if (newCards.length > 0) {
+        grid.insertAdjacentHTML('beforeend', newCards.map(item => buildCardHtml(item, isGlobalScope)).join(''));
+    }
+    updateLoadMoreControl(filteredList.length);
+    updateHeaderCount();
 }
 
 // Fixed card heights intentionally avoid runtime content measurement.
@@ -2178,21 +2247,14 @@ document.getElementById('toggle-all-btn').addEventListener('click', () => {
     btnSpan.innerText = allFlipped ? "还原正面" : "全卡翻面";
 });
 
-// 一键随机打乱当前单词本的卡片显示顺序
+// 一键随机打乱当前视图的卡片显示顺序（仅重洗内存乱序清单，不改 localStorage 写入顺序）
 window.shuffleCards = function() {
     const currentList = notebooks[activeNotebook] || [];
     if (currentList.length <= 1) {
         showToast("当前本里只有一个单词，不用打乱哦！");
         return;
     }
-
-    for (let i = currentList.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [currentList[i], currentList[j]] = [currentList[j], currentList[i]];
-    }
-
-    saveData();
-    renderCards();
+    reshuffleDisplay(); // 全量重渲，所有卡片自然回到正面
     showToast("顺序已打乱！快开始新一轮复习吧 🎲");
 }
 
@@ -2239,7 +2301,7 @@ window.exportToMD = function() {
 
         // 使用标准 HTML Ruby 语法，去除加粗，确保多平台稳定渲染
         let formattedWord = cleanWord;
-        const bracketRegex = /([^\s\[\]\u3040-\u309f]+)\[([^\]]+)\]/g;
+        const bracketRegex = rubyBracketRegex();
 
         if (bracketRegex.test(cleanWord)) {
             bracketRegex.lastIndex = 0; // 重置正则检索位置
@@ -2387,7 +2449,7 @@ window.exportToPDF = function() {
     // bracket 语法转 ruby 注音（与卡片渲染同规则）
     const toRuby = (word, kana) => {
         const safe = escHtml(word);
-        const bracketRegex = /([^\s\[\]\u3040-\u309f]+)\[([^\]]+)\]/g;
+        const bracketRegex = rubyBracketRegex();
         if (bracketRegex.test(safe)) {
             bracketRegex.lastIndex = 0;
             return safe.replace(bracketRegex, '<ruby>$1<rt>$2</rt></ruby>');
@@ -2499,16 +2561,47 @@ overflow-wrap: anywhere;
 window.onload = function() {
     loadData();
 }
-// Back to top button
+// Back to top button + floating shuffle button（共用 360px 显隐阈值）
 const backToTopBtn = document.getElementById('back-to-top-btn');
+const shuffleFab = document.getElementById('shuffle-fab');
 const updateBackToTopButton = () => {
-    backToTopBtn.classList.toggle('is-visible', window.scrollY > 360);
+    const visible = window.scrollY > 360;
+    backToTopBtn.classList.toggle('is-visible', visible);
+    if (shuffleFab) shuffleFab.classList.toggle('is-visible', visible);
 };
 window.addEventListener('scroll', updateBackToTopButton, { passive: true });
 backToTopBtn.addEventListener('click', () => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
 });
 updateBackToTopButton();
+
+// 浮动打乱按钮：重洗一轮（全量重渲使所有卡回正面）并平滑滚回顶部
+if (shuffleFab) {
+    shuffleFab.addEventListener('click', () => {
+        const { filteredList } = getDisplayedCards();
+        if (filteredList.length <= 1) {
+            showToast("当前视图里只有一个单词，不用打乱哦！");
+            return;
+        }
+        reshuffleDisplay();
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+        showToast("顺序已打乱！快开始新一轮复习吧 🎲");
+    });
+}
+
+// 滚动接近底部时自动加载下一批（手动"加载更多"按钮保留作兜底）
+// 观察目标 load-more-container 在全部加载完时是 display:none，自然不会触发
+const loadMoreSentinel = document.getElementById('load-more-container');
+if ('IntersectionObserver' in window && loadMoreSentinel) {
+    const loadMoreObserver = new IntersectionObserver((entries) => {
+        if (!entries.some(entry => entry.isIntersecting)) return;
+        const { filteredList } = getDisplayedCards();
+        if (visibleCardLimit < filteredList.length) {
+            loadMoreCards();
+        }
+    }, { rootMargin: '240px' }); // 提前 240px 预加载，滚到底前下一批已就位
+    loadMoreObserver.observe(loadMoreSentinel);
+}
 // Add a one-click clear button to every editable text field.
 function setupInputClearButtons() {
     const fields = document.querySelectorAll('input:not([type="hidden"]):not([type="file"]):not([type="range"]):not([type="radio"]):not([type="checkbox"]):not([type="button"]):not([type="submit"]), textarea');
