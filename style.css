@@ -16,9 +16,13 @@ body.dark {
 /* ✨ 自定义高级暗金注音色 (夜间模式专用) */
 .dark .text-night-gold { color: #a38a5e !important; }
 
-/* 2. 动态物理缩放核心控制变量 (卡片宽高与字体比例关联) */
+/* 2. 动态物理缩放核心控制变量 (卡片宽高与字体比例关联)
+   --card-scale: 卡片物理尺寸系数（滑块直接控制）
+   --font-scale: 字号系数（密度模式：缩小时按 0.6 次幂缩得比卡片慢，放大时与卡片等比）
+   两者由 changeCardScale() 在 #cards-grid 上联动写入 */
 #cards-grid {
     --card-scale: 1.0;
+    --font-scale: 1.0;
     --card-width: 300px;
     --card-height: 380px;
 }
@@ -146,14 +150,17 @@ rt {
     mask-image: linear-gradient(to right, black calc(100% - 24px), transparent 100%);
 }
 
-/* 所有卡片内部的变量声明，它们会自动继承来自父级 #cards-grid 的等比缩放参数 */
+/* 所有卡片内部的变量声明，它们会自动继承来自父级 #cards-grid 的等比缩放参数；
+   字号 = 字号系数 × fit-to-card 单卡适配系数（溢出的卡片由 JS 逐级调小 --fit-scale，
+   卡片盒子尺寸与网格轨道完全不变，避免任何级联重排） */
 .card-scale-box {
+    --fit-scale: 1.0;
     --card-pad: calc(1.25rem * var(--card-scale, 1.0));
-    --fs-title: calc(1.875rem * var(--card-scale, 1.0));
-    --fs-sub: calc(1.375rem * var(--card-scale, 1.0));
-    --fs-text: calc(0.875rem * var(--card-scale, 1.0));
-    --fs-small: calc(0.75rem * var(--card-scale, 1.0));
-    --fs-tiny: calc(0.625rem * var(--card-scale, 1.0));
+    --fs-title: calc(1.875rem * var(--font-scale, 1.0) * var(--fit-scale));
+    --fs-sub: calc(1.375rem * var(--font-scale, 1.0) * var(--fit-scale));
+    --fs-text: calc(0.875rem * var(--font-scale, 1.0) * var(--fit-scale));
+    --fs-small: calc(0.75rem * var(--font-scale, 1.0) * var(--fit-scale));
+    --fs-tiny: calc(0.625rem * var(--font-scale, 1.0) * var(--fit-scale));
     --spacing-gap: calc(0.75rem * var(--card-scale, 1.0));
 }
 
@@ -301,4 +308,19 @@ rt {
 }
 #cards-grid[data-compact="true"] ruby {
     line-height: 1.55;
+}
+
+/* 标签管理面板：输入框聚焦时铅笔变成主题绿，让"正在编辑"的状态更明确 */
+#tag-manager-list > div:focus-within svg {
+    color: #047857;
+}
+.dark #tag-manager-list > div:focus-within svg {
+    color: #2dd4bf;
+}
+
+/* 聚焦时只加描边、不换底色。此前 focus-within 会把背景由透明切成纯白，
+   而透明底色可走子像素抗锯齿、纯色底色走灰度抗锯齿，12px 粗体切换后
+   视觉上就是"字变糊了"。保持底色一致即可根除。 */
+#tag-manager-list input:focus {
+    -webkit-font-smoothing: antialiased;
 }

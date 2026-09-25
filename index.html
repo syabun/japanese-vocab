@@ -4,6 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>日语单词本</title>
+    <!-- 站点图标：两张错位的卡片，深绿底 + 白色卡片 + 半透明背卡，呼应应用的卡片翻转/复习概念 -->
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDAgMTAwIj48cmVjdCB4PSIxMCIgeT0iMTAiIHdpZHRoPSI4MCIgaGVpZ2h0PSI4MCIgcng9IjIwIiBmaWxsPSIlMjMwNjVGNDYiLz48cmVjdCB4PSIxOCIgeT0iMzAiIHdpZHRoPSI0NiIgaGVpZ2h0PSI0NiIgcng9IjE0IiBmaWxsPSJ3aGl0ZSIgb3BhY2l0eT0iMC4zNSIvPjxyZWN0IHg9IjQyIiB5PSIyMCIgd2lkdGg9IjQ2IiBoZWlnaHQ9IjQ2IiByeD0iMTQiIGZpbGw9IndoaXRlIi8+PC9zdmc+">
     <!-- 引入 Tailwind CSS 提供极致的现代极简视觉设计 -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
@@ -67,20 +69,22 @@
         <!-- 输入表单区块 -->
         <section class="bg-white dark:bg-stone-800 rounded-2xl border border-stone-200/80 dark:border-stone-700 p-6 md:p-8 mb-10 shadow-sm transition-colors duration-300">
             <h2 class="text-base font-bold text-stone-700 dark:text-stone-300 mb-6 flex items-center">
-                <span class="w-1.5 h-4 bg-emerald-700 dark:bg-teal-600 rounded-full mr-2.5"></span>
+                <span class="w-1.5 h-4 bg-emerald-800 dark:bg-teal-600 rounded-full mr-2.5"></span>
                 添加新单词
             </h2>
             <form id="vocab-form" class="space-y-5">
+                <!-- 单词与假名：宽屏并排、窄屏自动换行（响应式，别强行并排——
+                     窄屏硬塞两栏会让单词框太憋屈） -->
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
                     <!-- 单词输入 -->
                     <div class="space-y-1.5">
-                        <label class="block text-xs font-semibold text-stone-500 dark:text-stone-400">单词 (Word) <span class="text-red-500 dark:text-red-400">*</span></label>
+                        <label class="block text-xs font-semibold text-stone-500 dark:text-stone-400">单词 <span class="text-red-500 dark:text-red-400">*</span></label>
                         <div class="relative w-full flex items-center">
                             <input type="text" id="input-word" required lang="ja"
                                 placeholder="例：美しい 或 美[うつく]しい"
                                 class="font-japanese w-full pl-4 pr-20 py-3 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-700/20 dark:focus:ring-teal-700/30 focus:border-emerald-700 dark:focus:border-teal-700 transition duration-200 text-stone-800 dark:text-stone-200 placeholder-stone-400 dark:placeholder-stone-500">
                             <!-- 匹配假名按钮 -->
-                            <button type="button" id="ai-parse-btn" onclick="autoLookupWord(false)" class="absolute right-2.5 py-1 px-2 bg-gradient-to-r from-emerald-800/90 to-teal-800/90 dark:from-teal-700/90 dark:to-emerald-700/90 text-white rounded-lg text-[11px] font-semibold hover:from-emerald-900 hover:to-teal-900 dark:hover:from-teal-600 dark:hover:to-emerald-600 transition-all duration-200 flex items-center shadow-sm active:scale-95" title="一键自动匹配头上假名">
+                            <button type="button" id="ai-parse-btn" onclick="autoLookupWord(false)" class="absolute right-2.5 py-1 px-2 bg-emerald-800 dark:bg-teal-700 text-white rounded-lg text-[11px] font-semibold hover:bg-emerald-900 dark:hover:bg-teal-600 transition-all duration-200 flex items-center shadow-sm active:scale-95" title="一键自动匹配头上假名">
                                 <span id="ai-btn-spinner" class="hidden animate-spin mr-1">
                                     <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
                                 </span>
@@ -90,7 +94,7 @@
                     </div>
                     <!-- 假名输入 -->
                     <div class="space-y-1.5">
-                        <label class="block text-xs font-semibold text-stone-500 dark:text-stone-400">假名 (Kana) <span class="text-stone-400 dark:text-stone-500 font-normal">(AI可自动填写，也可留空)</span></label>
+                        <label class="block text-xs font-semibold text-stone-500 dark:text-stone-400">假名 <span class="text-stone-400 dark:text-stone-500 font-normal">(AI可自动填写，也可留空)</span></label>
                         <input type="text" id="input-kana" lang="ja"
                             placeholder="例：うつくしい"
                             class="font-japanese w-full px-4 py-3 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-700/20 dark:focus:ring-teal-700/30 focus:border-emerald-700 dark:focus:border-teal-700 transition duration-200 text-stone-800 dark:text-stone-200 placeholder-stone-400 dark:placeholder-stone-500">
@@ -100,7 +104,7 @@
                 <div class="grid grid-cols-1 gap-5">
                     <!-- 中文释义 -->
                     <div class="space-y-1.5">
-                        <label class="block text-xs font-semibold text-stone-500 dark:text-stone-400">释义 (Meaning) <span class="text-red-500 dark:text-red-400">*</span></label>
+                        <label class="block text-xs font-semibold text-stone-500 dark:text-stone-400">释义 <span class="text-red-500 dark:text-red-400">*</span></label>
                         <input type="text" id="input-meaning" required
                             placeholder="例：美丽的；美好的"
                             class="w-full px-4 py-3 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-700/20 dark:focus:ring-teal-700/30 focus:border-emerald-700 dark:focus:border-teal-700 transition duration-200 text-stone-800 dark:text-stone-200 placeholder-stone-400 dark:placeholder-stone-500">
@@ -109,8 +113,8 @@
 
                 <!-- 例句输入 -->
                 <div class="space-y-1.5">
-                    <label class="block text-xs font-semibold text-stone-500 dark:text-stone-400">例句 (Example Sentence)</label>
-                    <textarea id="input-example" rows="3" lang="ja"
+                    <label class="block text-xs font-semibold text-stone-500 dark:text-stone-400">例句</label>
+                    <textarea id="input-example" rows="2" lang="ja"
                         placeholder="例：私はその美しい景色に魅せられてしまった。（我被那美丽的景色所吸引。）/美しい友情（美好的友情）"
                         class="w-full px-4 py-3 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-700/20 dark:focus:ring-teal-700/30 focus:border-emerald-700 dark:focus:border-teal-700 transition duration-200 text-stone-800 dark:text-stone-200 placeholder-stone-400 dark:placeholder-stone-500 resize-none"></textarea>
                 </div>
@@ -123,7 +127,7 @@
                     
                     <!-- 批量导入入口按钮 -->
                     <div class="flex space-x-2 self-end sm:self-center shrink-0">
-                        <button type="button" onclick="openBatchImportModal()" class="px-5 py-3.5 bg-purple-100 dark:bg-purple-900/30 text-purple-800 dark:text-purple-400 hover:bg-purple-200 dark:hover:bg-purple-800/50 rounded-xl font-medium tracking-wider transition-all duration-200 shadow-sm whitespace-nowrap">
+                        <button type="button" onclick="openBatchImportModal()" class="px-5 py-3.5 bg-stone-100 dark:bg-stone-800 border border-stone-200 dark:border-stone-700 text-stone-600 dark:text-stone-300 hover:bg-stone-200 dark:hover:bg-stone-700 rounded-xl font-medium tracking-wider transition-all duration-200 shadow-sm whitespace-nowrap">
                             📥 批量导入
                         </button>
                         <button type="submit" 
@@ -157,7 +161,7 @@
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
                     </button>
                     <!-- ✏️ 编辑(重命名)按钮 -->
-                    <button id="rename-notebook-btn" onclick="openRenameNotebookModal()" class="p-1.5 sm:p-2 text-stone-400 dark:text-stone-500 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-stone-800 rounded-xl transition" title="重命名当前单词本">
+                    <button id="rename-notebook-btn" onclick="openRenameNotebookModal()" class="p-1.5 sm:p-2 text-stone-400 dark:text-stone-500 hover:text-emerald-600 dark:hover:text-teal-400 hover:bg-emerald-50 dark:hover:bg-stone-800 rounded-xl transition" title="重命名当前单词本">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg>
                     </button>
                     <button id="delete-notebook-btn" onclick="openDeleteNotebookConfirm()" class="p-1.5 sm:p-2 text-stone-400 dark:text-stone-500 hover:text-red-500 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-stone-800 rounded-xl transition" title="删除当前单词本">
@@ -185,14 +189,17 @@
             <!-- 卡片无级缩放设置 -->
             <div id="scale-control-container" class="flex items-center space-x-3 w-full sm:w-auto justify-between sm:justify-start transition-opacity duration-300 pt-2 sm:pt-0 border-t sm:border-t-0 border-stone-200/50 dark:border-stone-700/50">
                 <span class="text-xs font-bold text-stone-500 dark:text-stone-400 uppercase tracking-wider shrink-0">卡片大小:</span>
-                <input type="range" id="scale-slider" min="0.7" max="1.3" step="0.1" value="1.0" oninput="changeCardScale(this.value)" class="w-full sm:w-32 h-1.5 bg-stone-200 dark:bg-stone-700 rounded-lg appearance-none cursor-pointer accent-emerald-800 dark:accent-teal-500 mx-2">
+                <input type="range" id="scale-slider" min="0.7" max="1.3" step="0.05" value="1.0" oninput="changeCardScale(this.value)" class="w-full sm:w-32 h-1.5 bg-stone-200 dark:bg-stone-700 rounded-lg appearance-none cursor-pointer accent-emerald-800 dark:accent-teal-500 mx-2">
                 <span id="scale-value" class="text-xs text-stone-600 dark:text-stone-300 font-mono font-semibold w-10 text-right shrink-0">100%</span>
             </div>
         </section>
 
         <!-- 工具栏：标题、已掌握切换、搜索 -->
+        <!-- 窄屏换行策略：flex-wrap 让标签栏在宽度不足时整体落到下一行（独占整行、
+             正常折行显示所有标签），避免被标题与筛选按钮挤到只剩几十像素。
+             宽屏（sm 及以上，≥640px）恢复单行 + 标签栏横向滚动。 -->
         <section class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
-            <div class="flex items-center w-full space-x-4 overflow-x-auto scrollbar-hide py-1">
+            <div class="flex flex-wrap items-center gap-y-2 gap-x-4 w-full py-1">
                 <h2 class="text-lg font-bold text-stone-800 dark:text-stone-200 tracking-wider transition-colors shrink-0">
                     单词卡片库
                 </h2>
@@ -208,13 +215,18 @@
                         全部
                     </button>
                 </div>
-                <!-- 垂直分割线 -->
-                <div class="w-px h-5 bg-stone-300 dark:bg-stone-700 shrink-0"></div>
-                <!-- 动态全局标签筛选器（标签过多时横向滑动，边缘渐隐提示） -->
-                <div id="global-tags-wrapper" class="flex-1 min-w-0">
-                    <div id="global-tags-filter" class="flex items-center space-x-1.5 overflow-x-auto scrollbar-hide py-0.5">
+                <!-- 垂直分割线：窄屏换行时隐藏（此时它已无分隔意义） -->
+                <div class="hidden sm:block w-px h-5 bg-stone-300 dark:bg-stone-700 shrink-0"></div>
+                <!-- 动态全局标签筛选器 + 标签管理入口
+                     窄屏：整块落到下一行并折行显示所有标签，齿轮按钮同行贴右端；
+                     宽屏：单行、标签栏横向滚动（边缘渐隐提示），齿轮固定在最右端。 -->
+                <div id="global-tags-wrapper" class="flex-none w-full sm:w-auto sm:flex-1 min-w-0 flex items-start gap-1">
+                    <div id="global-tags-filter" class="flex-1 min-w-0 flex flex-wrap sm:flex-nowrap items-center gap-1.5 py-0.5 sm:overflow-x-auto scrollbar-hide">
                         <!-- JS 动态渲染 tags -->
                     </div>
+                    <button type="button" id="tag-manager-btn" onclick="openTagManager()" class="p-1.5 text-stone-400 dark:text-stone-500 hover:text-emerald-700 dark:hover:text-teal-400 hover:bg-emerald-50 dark:hover:bg-stone-800 rounded-lg transition shrink-0" title="标签管理（改名 / 删除 / 查看词数）">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                    </button>
                 </div>
             </div>
 
@@ -278,7 +290,7 @@
 
         <div id="load-more-container" class="hidden flex-col items-center gap-2 pt-6">
             <p id="load-more-status" class="text-xs text-stone-400 dark:text-stone-500"></p>
-            <button type="button" onclick="loadMoreCards()" class="px-5 py-2.5 rounded-xl border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-800 hover:bg-stone-50 dark:hover:bg-stone-700 text-xs font-semibold text-stone-600 dark:text-stone-300 transition shadow-sm">
+            <button type="button" id="load-more-btn" onclick="loadMoreCards()" class="px-5 py-2.5 rounded-xl border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-800 hover:bg-stone-50 dark:hover:bg-stone-700 text-xs font-semibold text-stone-600 dark:text-stone-300 transition shadow-sm">
                 加载更多卡片
             </button>
         </div>
@@ -298,9 +310,9 @@
 
     <!-- ⚙️ AI 密钥配置与服务商切换 模态弹出框 -->
     <div id="ai-settings-modal" class="fixed inset-0 bg-black/60 flex items-center justify-center hidden z-50 p-4 backdrop-blur-sm transition-all duration-300">
-        <div class="bg-white dark:bg-stone-800 rounded-2xl border border-stone-200/80 dark:border-stone-700 p-6 w-full max-w-md shadow-2xl transform scale-95 transition-all duration-200">
+        <div class="bg-white dark:bg-stone-800 rounded-2xl border border-stone-200/80 dark:border-stone-700 p-6 w-full max-w-md shadow-2xl transition-all duration-200">
             <h3 class="text-base font-bold text-stone-800 dark:text-stone-200 mb-4 flex items-center">
-                <span class="w-1.5 h-4 bg-indigo-700 dark:bg-indigo-500 rounded-full mr-2"></span>
+                <span class="w-1.5 h-4 bg-emerald-800 dark:bg-teal-600 rounded-full mr-2"></span>
                 AI 智能连接设置
             </h3>
             <p class="text-xs text-stone-500 dark:text-stone-400 mb-5 leading-relaxed">
@@ -315,7 +327,7 @@
                         <input type="radio" name="ai-provider-toggle" value="gemini" class="hidden" checked>
                         <span>Google Gemini</span>
                     </label>
-                    <label class="flex items-center justify-center py-2.5 rounded-lg cursor-pointer text-xs font-bold select-none border border-transparent transition has-[:checked]:bg-white dark:has-[:checked]:bg-stone-700 has-[:checked]:text-blue-700 dark:has-[:checked]:text-blue-400 has-[:checked]:shadow-sm text-stone-500 dark:text-stone-400">
+                    <label class="flex items-center justify-center py-2.5 rounded-lg cursor-pointer text-xs font-bold select-none border border-transparent transition has-[:checked]:bg-white dark:has-[:checked]:bg-stone-700 has-[:checked]:text-emerald-800 dark:has-[:checked]:text-teal-400 has-[:checked]:shadow-sm text-stone-500 dark:text-stone-400">
                         <input type="radio" name="ai-provider-toggle" value="deepseek" class="hidden">
                         <span>DeepSeek API</span>
                     </label>
@@ -325,13 +337,13 @@
             <!-- Gemini Key 输入区 -->
             <div class="space-y-1.5 mb-4">
                 <label class="block text-xs font-bold text-stone-600 dark:text-stone-400">Gemini API Key</label>
-                <input type="password" id="gemini-key-input" placeholder="输入 AIzaSy 开头的Google Ai Studio密钥..." class="w-full px-3 py-2.5 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:focus:ring-indigo-500/40 focus:border-indigo-500 dark:focus:border-indigo-400 font-mono text-stone-800 dark:text-stone-200">
+                <input type="password" id="gemini-key-input" placeholder="输入 AIzaSy 开头的Google Ai Studio密钥..." class="w-full px-3 py-2.5 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700/20 dark:focus:ring-teal-700/30 focus:border-emerald-700 dark:focus:border-teal-700 font-mono text-stone-800 dark:text-stone-200">
             </div>
 
             <!-- DeepSeek Key 输入区 -->
             <div class="space-y-1.5 mb-6">
                 <label class="block text-xs font-bold text-stone-600 dark:text-stone-400">DeepSeek API Key</label>
-                <input type="password" id="deepseek-key-input" placeholder="输入 sk- 开头的DeepSeek密钥..." class="w-full px-3 py-2.5 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:focus:ring-indigo-500/40 focus:border-indigo-500 dark:focus:border-indigo-400 font-mono text-stone-800 dark:text-stone-200">
+                <input type="password" id="deepseek-key-input" placeholder="输入 sk- 开头的DeepSeek密钥..." class="w-full px-3 py-2.5 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700/20 dark:focus:ring-teal-700/30 focus:border-emerald-700 dark:focus:border-teal-700 font-mono text-stone-800 dark:text-stone-200">
             </div>
 
             <div class="flex justify-end space-x-2.5">
@@ -450,9 +462,9 @@
 
     <!-- 📥 批量导入 - 自定义模态框（AI 智能导入 / JSON 导入 双栏切换） -->
     <div id="batch-import-modal" class="fixed inset-0 bg-black/60 flex items-center justify-center hidden z-50 p-4 backdrop-blur-sm transition-all duration-300">
-        <div class="bg-white dark:bg-stone-800 rounded-2xl border border-stone-200/80 dark:border-stone-700 p-6 w-full max-w-2xl shadow-2xl transform scale-95 transition-transform duration-200 flex flex-col max-h-[90vh]">
+        <div class="bg-white dark:bg-stone-800 rounded-2xl border border-stone-200/80 dark:border-stone-700 p-6 w-full max-w-2xl shadow-2xl flex flex-col max-h-[90vh]">
             <h3 class="text-base font-bold text-stone-800 dark:text-stone-200 mb-3 flex items-center shrink-0">
-                <span class="w-1.5 h-4 bg-purple-600 dark:bg-purple-500 rounded-full mr-2"></span>
+                <span class="w-1.5 h-4 bg-emerald-800 dark:bg-teal-600 rounded-full mr-2"></span>
                 批量导入
             </h3>
 
@@ -476,20 +488,20 @@
                     <span>上传笔记照片</span>
                 </button>
                 <div id="batch-image-preview-container" class="hidden relative group">
-                    <img id="batch-image-preview" class="h-9 w-9 object-cover rounded shadow-sm border border-purple-300 dark:border-purple-600">
+                    <img id="batch-image-preview" class="h-9 w-9 object-cover rounded shadow-sm border border-stone-300 dark:border-stone-600">
                     <button type="button" onclick="clearBatchImage()" class="absolute -top-1.5 -right-1.5 bg-red-500 hover:bg-red-600 text-white rounded-full w-4 h-4 flex items-center justify-center text-[10px] shadow transition-colors" title="移除图片">×</button>
                 </div>
             </div>
 
             <div class="flex-grow overflow-hidden relative mb-5">
-                <textarea id="batch-import-textarea" lang="ja" class="w-full h-full min-h-[220px] px-4 py-3 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20 dark:focus:ring-purple-500/40 focus:border-purple-500 dark:focus:border-purple-400 font-japanese text-stone-800 dark:text-stone-200 resize-none placeholder-stone-400 dark:placeholder-stone-500" placeholder="例如粘贴内容：
+                <textarea id="batch-import-textarea" lang="ja" class="w-full h-full min-h-[220px] px-4 py-3 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700/20 dark:focus:ring-teal-700/30 focus:border-emerald-700 dark:focus:border-teal-700 font-japanese text-stone-800 dark:text-stone-200 resize-none placeholder-stone-400 dark:placeholder-stone-500" placeholder="例如粘贴内容：
 美味しい 好吃 (このケーキは美味しいです)
 勉強 べんきょう 学习
 ..."></textarea>
             </div>
             <div class="flex justify-end space-x-2.5 shrink-0">
                 <button type="button" onclick="closeBatchImportModal()" class="px-4 py-2 border border-stone-200 dark:border-stone-600 rounded-xl text-xs text-stone-500 dark:text-stone-400 hover:bg-stone-50 dark:hover:bg-stone-700 transition">取消</button>
-                <button type="button" id="batch-import-submit-btn" onclick="submitBatchImport()" class="px-5 py-2 bg-purple-700 hover:bg-purple-800 dark:bg-purple-600 dark:hover:bg-purple-500 text-white rounded-xl text-xs font-semibold transition shadow-sm flex items-center space-x-1.5">
+                <button type="button" id="batch-import-submit-btn" onclick="submitBatchImport()" class="px-5 py-2 bg-emerald-800 hover:bg-emerald-900 dark:bg-teal-700 dark:hover:bg-teal-600 text-white rounded-xl text-xs font-semibold transition shadow-sm flex items-center space-x-1.5">
                     <span id="batch-import-spinner" class="hidden animate-spin">
                         <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
                     </span>
@@ -514,7 +526,7 @@
                 </div>
 
                 <div class="flex-grow overflow-hidden relative mb-3">
-                    <textarea id="json-import-textarea" oninput="previewJsonImport()" class="w-full h-full min-h-[140px] px-4 py-3 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl text-xs font-mono focus:outline-none focus:ring-2 focus:ring-purple-500/20 dark:focus:ring-purple-500/40 focus:border-purple-500 dark:focus:border-purple-400 text-stone-800 dark:text-stone-200 resize-none placeholder-stone-400 dark:placeholder-stone-500" placeholder='{"format":"vocab-pack","scope":"标签·精选","cards":[...]}'></textarea>
+                    <textarea id="json-import-textarea" oninput="previewJsonImport()" class="w-full h-full min-h-[140px] px-4 py-3 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl text-xs font-mono focus:outline-none focus:ring-2 focus:ring-emerald-700/20 dark:focus:ring-teal-700/30 focus:border-emerald-700 dark:focus:border-teal-700 text-stone-800 dark:text-stone-200 resize-none placeholder-stone-400 dark:placeholder-stone-500" placeholder='{"format":"vocab-pack","scope":"标签·精选","cards":[...]}'></textarea>
                 </div>
 
                 <!-- 解析预览 -->
@@ -523,20 +535,20 @@
                 <!-- 导入去向 -->
                 <div class="mb-4 shrink-0 space-y-2.5">
                     <label class="flex items-center space-x-2 text-xs text-stone-700 dark:text-stone-300 cursor-pointer">
-                        <input type="radio" name="json-target" value="current" checked class="accent-purple-700 dark:accent-purple-500">
-                        <span>导入当前单词本：<strong id="json-target-current-name" class="text-purple-800 dark:text-purple-400"></strong></span>
+                        <input type="radio" name="json-target" value="current" checked class="accent-emerald-800 dark:accent-teal-600">
+                        <span>导入当前单词本：<strong id="json-target-current-name" class="text-emerald-800 dark:text-teal-400"></strong></span>
                     </label>
                     <label class="flex items-center space-x-2 text-xs text-stone-700 dark:text-stone-300 cursor-pointer">
-                        <input type="radio" name="json-target" value="new" class="accent-purple-700 dark:accent-purple-500">
+                        <input type="radio" name="json-target" value="new" class="accent-emerald-800 dark:accent-teal-600">
                         <span class="shrink-0">新建单词本：</span>
                         <input type="text" id="json-new-notebook-name" placeholder="新单词本名称（撞名自动加后缀）" onfocus="document.querySelector('input[name=json-target][value=new]').checked = true"
-                            class="flex-1 px-2.5 py-1.5 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-purple-500/20 dark:focus:ring-purple-500/40 focus:border-purple-500 dark:focus:border-purple-400 text-stone-800 dark:text-stone-200 placeholder-stone-400 dark:placeholder-stone-500">
+                            class="flex-1 px-2.5 py-1.5 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-emerald-700/20 dark:focus:ring-teal-700/30 focus:border-emerald-700 dark:focus:border-teal-700 text-stone-800 dark:text-stone-200 placeholder-stone-400 dark:placeholder-stone-500">
                     </label>
                 </div>
 
                 <div class="flex justify-end space-x-2.5 shrink-0">
                     <button type="button" onclick="closeBatchImportModal()" class="px-4 py-2 border border-stone-200 dark:border-stone-600 rounded-xl text-xs text-stone-500 dark:text-stone-400 hover:bg-stone-50 dark:hover:bg-stone-700 transition">取消</button>
-                    <button type="button" id="json-import-submit-btn" onclick="submitJsonImport()" disabled class="px-5 py-2 bg-purple-700 hover:bg-purple-800 dark:bg-purple-600 dark:hover:bg-purple-500 text-white rounded-xl text-xs font-semibold transition shadow-sm disabled:opacity-40 disabled:cursor-not-allowed">
+                    <button type="button" id="json-import-submit-btn" onclick="submitJsonImport()" disabled class="px-5 py-2 bg-emerald-800 hover:bg-emerald-900 dark:bg-teal-700 dark:hover:bg-teal-600 text-white rounded-xl text-xs font-semibold transition shadow-sm disabled:opacity-40 disabled:cursor-not-allowed">
                         📦 导入单词
                     </button>
                 </div>
@@ -546,9 +558,9 @@
 
     <!-- 1. 新建单词本 - 自定义模态框 -->
     <div id="new-notebook-modal" class="fixed inset-0 bg-black/60 flex items-center justify-center hidden z-50 p-4 backdrop-blur-sm transition-all duration-300">
-        <div class="bg-white dark:bg-stone-800 rounded-2xl border border-stone-200/80 dark:border-stone-700 p-6 w-full max-w-md shadow-2xl transform scale-95 transition-transform">
+        <div class="bg-white dark:bg-stone-800 rounded-2xl border border-stone-200/80 dark:border-stone-700 p-6 w-full max-w-md shadow-2xl">
             <h3 class="text-base font-bold text-stone-800 dark:text-stone-200 mb-4 flex items-center">
-                <span class="w-1.5 h-4 bg-emerald-700 dark:bg-teal-600 rounded-full mr-2"></span>
+                <span class="w-1.5 h-4 bg-emerald-800 dark:bg-teal-600 rounded-full mr-2"></span>
                 新建单词分类
             </h3>
             <p class="text-xs text-stone-500 dark:text-stone-400 mb-4">输入新单词本的主题名称（如：“迷宫饭”、“日常”、“考级”等）：</p>
@@ -557,31 +569,47 @@
                 class="w-full px-4 py-3 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-700/20 dark:focus:ring-teal-700/30 focus:border-emerald-700 dark:focus:border-teal-700 transition duration-200 text-stone-800 dark:text-stone-200 mb-5 placeholder-stone-400 dark:placeholder-stone-500">
             <div class="flex justify-end space-x-3">
                 <button onclick="closeNewNotebookModal()" class="px-4 py-2 border border-stone-200 dark:border-stone-600 rounded-xl text-xs text-stone-500 dark:text-stone-400 hover:bg-stone-50 dark:hover:bg-stone-700 transition">取消</button>
-                <button onclick="submitNewNotebook()" class="px-5 py-2 bg-emerald-800 dark:bg-teal-700 text-white rounded-xl text-xs font-semibold hover:bg-emerald-900 dark:hover:bg-teal-600 transition">确定创建</button>
+                <button onclick="submitNewNotebook()" class="px-5 py-2 bg-emerald-800 dark:bg-teal-700 text-white rounded-xl text-xs font-semibold hover:bg-emerald-900 dark:hover:bg-teal-600 transition shadow-sm">确定创建</button>
             </div>
         </div>
     </div>
 
     <!-- 1.5 ✏️ 重命名单词本 - 自定义模态框 -->
     <div id="rename-notebook-modal" class="fixed inset-0 bg-black/60 flex items-center justify-center hidden z-50 p-4 backdrop-blur-sm transition-all duration-300">
-        <div class="bg-white dark:bg-stone-800 rounded-2xl border border-stone-200/80 dark:border-stone-700 p-6 w-full max-w-md shadow-2xl transform scale-95 transition-transform">
+        <div class="bg-white dark:bg-stone-800 rounded-2xl border border-stone-200/80 dark:border-stone-700 p-6 w-full max-w-md shadow-2xl">
             <h3 class="text-base font-bold text-stone-800 dark:text-stone-200 mb-4 flex items-center">
-                <span class="w-1.5 h-4 bg-blue-600 dark:bg-blue-500 rounded-full mr-2"></span>
+                <span class="w-1.5 h-4 bg-emerald-800 dark:bg-teal-600 rounded-full mr-2"></span>
                 重命名当前单词本
             </h3>
             <p class="text-xs text-stone-500 dark:text-stone-400 mb-4">为 <strong id="rename-notebook-oldname" class="text-stone-700 dark:text-stone-300"></strong> 输入一个新的名称：</p>
             <input type="text" id="rename-notebook-input" 
-                class="w-full px-4 py-3 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:focus:ring-blue-500/40 focus:border-blue-500 dark:focus:border-blue-400 transition duration-200 text-stone-800 dark:text-stone-200 mb-5">
+                class="w-full px-4 py-3 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-700/20 dark:focus:ring-teal-700/30 focus:border-emerald-700 dark:focus:border-teal-700 transition duration-200 text-stone-800 dark:text-stone-200 mb-5">
             <div class="flex justify-end space-x-3">
                 <button onclick="closeRenameNotebookModal()" class="px-4 py-2 border border-stone-200 dark:border-stone-600 rounded-xl text-xs text-stone-500 dark:text-stone-400 hover:bg-stone-50 dark:hover:bg-stone-700 transition">取消</button>
-                <button onclick="submitRenameNotebook()" class="px-5 py-2 bg-blue-600 dark:bg-blue-600 text-white rounded-xl text-xs font-semibold hover:bg-blue-700 dark:hover:bg-blue-500 transition">确认改名</button>
+                <button onclick="submitRenameNotebook()" class="px-5 py-2 bg-emerald-800 dark:bg-teal-700 text-white rounded-xl text-xs font-semibold hover:bg-emerald-900 dark:hover:bg-teal-600 transition shadow-sm">确认改名</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ⚠️ 通用确认弹窗（替代原生 confirm，保持 UI 风格统一）
+         层级 z-[60] 高于其他弹窗（z-50），以便叠加在标签管理面板之上正常显示 -->
+    <div id="confirm-modal" class="fixed inset-0 bg-black/60 flex items-center justify-center hidden z-[60] p-4 backdrop-blur-sm transition-all duration-300">
+        <div class="bg-white dark:bg-stone-800 rounded-2xl border border-stone-200/80 dark:border-stone-700 p-6 w-full max-w-md shadow-2xl">
+            <h3 class="text-base font-bold text-stone-800 dark:text-stone-200 mb-4 flex items-start">
+                <svg class="w-5 h-5 mr-1.5 shrink-0 text-red-600 dark:text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+                <span id="confirm-modal-title">确认操作？</span>
+            </h3>
+            <p id="confirm-modal-message" class="text-xs text-stone-500 dark:text-stone-400 mb-5 leading-relaxed"></p>
+            <div class="flex justify-end space-x-3">
+                <button type="button" onclick="closeConfirmModal()" class="px-4 py-2 border border-stone-200 dark:border-stone-600 rounded-xl text-xs font-semibold text-stone-500 dark:text-stone-400 hover:bg-stone-50 dark:hover:bg-stone-700 transition">取消</button>
+                <button type="button" id="confirm-modal-ok" onclick="submitConfirmModal()" class="px-5 py-2 bg-red-600 dark:bg-red-700 text-white rounded-xl text-xs font-semibold hover:bg-red-700 dark:hover:bg-red-600 transition shadow-sm">确认</button>
             </div>
         </div>
     </div>
 
     <!-- 2. 删除单词本 - 自定义确认模态框 -->
     <div id="delete-notebook-modal" class="fixed inset-0 bg-black/60 flex items-center justify-center hidden z-50 p-4 backdrop-blur-sm transition-all duration-300">
-        <div class="bg-white dark:bg-stone-800 rounded-2xl border border-stone-200/80 dark:border-stone-700 p-6 w-full max-w-md shadow-2xl transform scale-95 transition-transform">
+        <div class="bg-white dark:bg-stone-800 rounded-2xl border border-stone-200/80 dark:border-stone-700 p-6 w-full max-w-md shadow-2xl">
             <h3 class="text-base font-bold text-red-700 dark:text-red-500 mb-4 flex items-center">
                 <svg class="w-5 h-5 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
                 确认删除此单词本？
@@ -592,30 +620,39 @@
             <p class="text-xs text-red-500 dark:text-red-400 mb-5 font-semibold">⚠️ 注意：删除后，该册中保存的所有卡片都将永久消失，无法撤销！</p>
             <div class="flex justify-end space-x-3">
                 <button onclick="closeDeleteNotebookConfirm()" class="px-4 py-2 border border-stone-200 dark:border-stone-600 rounded-xl text-xs text-stone-500 dark:text-stone-400 hover:bg-stone-50 dark:hover:bg-stone-700 transition">取消</button>
-                <button onclick="submitDeleteNotebook()" class="px-5 py-2 bg-red-600 dark:bg-red-700 text-white rounded-xl text-xs font-semibold hover:bg-red-700 dark:hover:bg-red-600 transition">确认永久删除</button>
+                <button onclick="submitDeleteNotebook()" class="px-5 py-2 bg-red-600 dark:bg-red-700 text-white rounded-xl text-xs font-semibold hover:bg-red-700 dark:hover:bg-red-600 transition shadow-sm">确认永久删除</button>
             </div>
         </div>
     </div>
 
-    <!-- 3. 编辑单词卡片 - 自定义模态框 (内部嵌合AI按钮) -->
+    <!-- ================= 3. 编辑单词卡片重构版 ================= -->
     <div id="edit-card-modal" class="fixed inset-0 bg-black/60 flex items-center justify-center hidden z-50 p-4 backdrop-blur-sm transition-all duration-300">
-        <div class="bg-white dark:bg-stone-800 rounded-2xl border border-stone-200/80 dark:border-stone-700 p-6 w-full max-w-xl shadow-2xl transform scale-95 transition-transform">
-            <h3 class="text-base font-bold text-stone-800 dark:text-stone-200 mb-4 flex items-center">
-                <span class="w-1.5 h-4 bg-emerald-700 dark:bg-teal-500 rounded-full mr-2"></span>
+        <!-- max-h + 内部滚动：此前没有高度上限，内容一多弹窗就无限变长，
+             超出视口后底部"保存修改"按钮既看不见也滚不到。
+             表单自身滚动、标题与底部按钮区固定，保证任何屏幕都能触达操作按钮。 -->
+        <div class="bg-white dark:bg-stone-800 rounded-2xl border border-stone-200/80 dark:border-stone-700 p-6 w-full max-w-xl shadow-2xl flex flex-col max-h-[85vh]">
+            
+            <h3 class="text-base font-bold text-stone-800 dark:text-stone-200 mb-6 flex items-center shrink-0">
+                <!-- 对齐顶部绿：竖线 -->
+                <span class="w-1.5 h-4 bg-emerald-800 dark:bg-teal-600 rounded-full mr-2.5"></span>
                 修改单词卡片
             </h3>
-            <form id="edit-vocab-form" class="space-y-4">
+            
+            <!-- 统一表单间距：使用 space-y-5 和 space-y-1.5 对齐顶部 -->
+            <form id="edit-vocab-form" class="space-y-5 flex-1 min-h-0 overflow-y-auto pr-1">
                 <input type="hidden" id="edit-card-id">
                 <input type="hidden" id="edit-card-notebook">
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <!-- 编辑状态下的单词输入 -->
-                    <div class="space-y-1 flex flex-col justify-between">
-                        <label class="block text-[11px] font-bold text-stone-500 dark:text-stone-400">单词 (Word)</label>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-5">
+                    <div class="space-y-1.5 flex flex-col justify-between">
+                        <!-- 对齐顶部绿：字号恢复 text-xs -->
+                        <label class="block text-xs font-semibold text-stone-500 dark:text-stone-400">单词</label>
                         <div class="relative w-full flex items-center">
+                            <!-- 对齐顶部绿：调整 padding 和 focus-ring -->
                             <input type="text" id="edit-word" required lang="ja"
-                                class="font-japanese w-full pl-3 pr-20 py-2.5 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-600/20 dark:focus:ring-teal-500/40 focus:border-emerald-600 dark:focus:border-teal-500 text-sm text-stone-800 dark:text-stone-200">
-                            <!-- 编辑面板中的 AI 快捷填充 -->
-                            <button type="button" id="edit-ai-parse-btn" onclick="autoLookupWord(true)" class="absolute right-1.5 py-1 px-2 bg-gradient-to-r from-emerald-700 to-teal-600 dark:from-emerald-700 dark:to-teal-600 text-white rounded-md text-[11px] font-semibold hover:from-emerald-800 hover:to-teal-700 dark:hover:from-emerald-600 dark:hover:to-teal-500 transition-all duration-200 flex items-center shadow-sm active:scale-95" title="使用AI重新校准读音">
+                                class="font-japanese w-full pl-4 pr-24 py-3 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-700/20 dark:focus:ring-teal-700/30 focus:border-emerald-700 dark:focus:border-teal-700 text-sm text-stone-800 dark:text-stone-200 transition duration-200">
+                            
+                            <!-- 对齐顶部绿：去掉渐变色，统一按钮 UI -->
+                            <button type="button" id="edit-ai-parse-btn" onclick="autoLookupWord(true)" class="absolute right-2.5 py-1.5 px-2.5 bg-emerald-800 dark:bg-teal-700 text-white rounded-lg text-[11px] font-semibold hover:bg-emerald-900 dark:hover:bg-teal-600 transition-all duration-200 flex items-center shadow-sm active:scale-95" title="使用AI重新校准读音">
                                 <span id="edit-ai-btn-spinner" class="hidden animate-spin mr-1">
                                     <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
                                 </span>
@@ -623,59 +660,88 @@
                             </button>
                         </div>
                     </div>
-                    <div class="space-y-1">
-                        <label class="block text-[11px] font-bold text-stone-500 dark:text-stone-400">假名 (Kana)</label>
+                    <div class="space-y-1.5">
+                        <label class="block text-xs font-semibold text-stone-500 dark:text-stone-400">假名</label>
                         <input type="text" id="edit-kana" lang="ja"
-                            class="font-japanese w-full px-3 py-2.5 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-600/20 dark:focus:ring-teal-500/40 focus:border-emerald-600 dark:focus:border-teal-500 text-sm text-stone-800 dark:text-stone-200">
+                            class="font-japanese w-full px-4 py-3 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-700/20 dark:focus:ring-teal-700/30 focus:border-emerald-700 dark:focus:border-teal-700 text-sm text-stone-800 dark:text-stone-200 transition duration-200">
                     </div>
                 </div>
-                <div class="space-y-1">
-                    <label class="block text-[11px] font-bold text-stone-500 dark:text-stone-400">释义 (Meaning)</label>
+                
+                <div class="space-y-1.5">
+                    <label class="block text-xs font-semibold text-stone-500 dark:text-stone-400">释义</label>
                     <input type="text" id="edit-meaning" required 
-                        class="w-full px-3 py-2.5 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-600/20 dark:focus:ring-teal-500/40 focus:border-emerald-600 dark:focus:border-teal-500 text-sm text-stone-800 dark:text-stone-200">
+                        class="w-full px-4 py-3 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-700/20 dark:focus:ring-teal-700/30 focus:border-emerald-700 dark:focus:border-teal-700 text-sm text-stone-800 dark:text-stone-200 transition duration-200">
                 </div>
-                <div class="space-y-1">
-                    <label class="block text-[11px] font-bold text-stone-500 dark:text-stone-400">例句 (Example Sentence)</label>
-                    <textarea id="edit-example" rows="3" lang="ja"
-                        class="w-full px-3 py-2 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-600/20 dark:focus:ring-teal-500/40 focus:border-emerald-600 dark:focus:border-teal-500 text-sm resize-none text-stone-800 dark:text-stone-200"></textarea>
+                
+                <div class="space-y-1.5">
+                    <label class="block text-xs font-semibold text-stone-500 dark:text-stone-400">例句</label>
+                    <textarea id="edit-example" rows="2" lang="ja"
+                        class="w-full px-4 py-3 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-700/20 dark:focus:ring-teal-700/30 focus:border-emerald-700 dark:focus:border-teal-700 text-sm resize-none text-stone-800 dark:text-stone-200 transition duration-200"></textarea>
                 </div>
 
-                <!-- 新增：标签编辑区 -->
-                <div class="space-y-1">
-                    <label class="block text-[11px] font-bold text-stone-500 dark:text-stone-400">标签 (Tags) - 输入后按回车添加</label>
-                    <div class="p-2 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-lg flex flex-wrap gap-2 items-center focus-within:ring-2 focus-within:ring-emerald-600/20 dark:focus-within:ring-teal-500/40 focus-within:border-emerald-600 dark:focus-within:border-teal-500 transition-colors">
+                <!-- 标签编辑区 -->
+                <div class="space-y-1.5">
+                    <label class="block text-xs font-semibold text-stone-500 dark:text-stone-400">标签 - 输入后按回车添加</label>
+                    <div class="px-4 py-2.5 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl flex flex-wrap gap-2 items-center focus-within:ring-2 focus-within:ring-emerald-700/20 dark:focus-within:ring-teal-700/30 focus-within:border-emerald-700 dark:focus-within:border-teal-700 transition duration-200">
                         <div id="edit-tags-container" class="flex flex-wrap gap-1.5">
-                            <!-- Tags 动态插入这里 -->
+                            <!-- Tags 动态插入这里 (JS里颜色已统一) -->
                         </div>
                         <input type="text" id="edit-tag-input" placeholder="输入标签..." class="flex-1 min-w-[80px] bg-transparent text-sm focus:outline-none text-stone-800 dark:text-stone-200">
                     </div>
                     <!-- 历史标签快捷添加（点击即加入当前卡片） -->
-                    <div id="edit-tag-suggestions" class="hidden flex flex-wrap gap-1.5 pt-1"></div>
+                    <div id="edit-tag-suggestions" class="hidden flex flex-wrap gap-1.5 pt-1.5"></div>
                 </div>
 
-                <div class="flex items-center gap-2 rounded-lg bg-stone-50 dark:bg-stone-900/60 border border-stone-200 dark:border-stone-700 p-2.5">
-                    <label class="shrink-0 text-[11px] font-bold text-stone-500 dark:text-stone-400">移动到</label>
-                    <select id="edit-move-target" class="min-w-0 flex-1 bg-transparent text-xs text-stone-700 dark:text-stone-200 focus:outline-none"></select>
-                    <button type="button" id="move-card-btn" onclick="moveEditedCard()" class="shrink-0 px-3 py-1.5 rounded-lg bg-emerald-700 text-white text-xs font-semibold hover:bg-emerald-800 disabled:opacity-40 disabled:cursor-not-allowed transition">移动</button>
+                <!-- 重构的移动位置选项：干掉 Move 按钮 -->
+                <div class="flex items-center gap-3 rounded-xl bg-stone-50 dark:bg-stone-900/60 border border-stone-200 dark:border-stone-700 px-4 py-3">
+                    <label class="shrink-0 text-xs font-semibold text-stone-500 dark:text-stone-400">所属单词本</label>
+                    <select id="edit-move-target" class="min-w-0 flex-1 bg-transparent text-sm text-stone-700 dark:text-stone-200 font-medium focus:outline-none cursor-pointer"></select>
                 </div>
                 
-                <div class="flex items-center justify-between pt-3 border-t border-stone-100 dark:border-stone-700 transition-colors">
-                    <!-- 彻底从库里删除卡片 -->
-                    <button type="button" onclick="submitDeleteCardPermanently()" class="px-4 py-2 text-red-600 dark:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-xl text-xs font-semibold transition flex items-center space-x-1">
+                <!-- 吸底按钮区：表单内容可滚动，这行始终贴在弹窗底部。
+                     保留在 <form> 内是因为"保存修改"是 type=submit，移出去会失去提交能力。
+                     -mx-1 抵消表单的 pr-1，让按钮背景把滚动内容完整遮住。 -->
+                <div class="sticky bottom-0 z-10 -mx-1 px-1 !mt-4 bg-white dark:bg-stone-800 flex items-center justify-between gap-3 pt-4 pb-1 border-t border-stone-100 dark:border-stone-700 transition-colors">
+                    <!-- 彻底删除卡片保留红色 (为iPad清晰可见) -->
+                    <button type="button" onclick="submitDeleteCardPermanently()" class="shrink-0 px-4 py-2.5 text-red-600 dark:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-xl text-xs font-semibold transition flex items-center space-x-1">
                         <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
                         <span>彻底删除卡片</span>
                     </button>
-                    <div class="flex space-x-2">
-                        <button type="button" onclick="closeEditCardModal()" class="px-4 py-2 border border-stone-200 dark:border-stone-600 rounded-xl text-xs text-stone-500 dark:text-stone-400 hover:bg-stone-50 dark:hover:bg-stone-700 transition">取消</button>
-                        <button type="submit" class="px-5 py-2 bg-emerald-700 text-white rounded-xl text-xs font-semibold hover:bg-emerald-800 dark:hover:bg-emerald-600 transition">保存修改</button>
+                    <div class="flex space-x-2.5 shrink-0">
+                        <button type="button" onclick="closeEditCardModal()" class="px-4 py-2.5 border border-stone-200 dark:border-stone-600 rounded-xl text-xs font-semibold text-stone-500 dark:text-stone-400 hover:bg-stone-50 dark:hover:bg-stone-700 transition">取消</button>
+                        <!-- 对齐顶部绿：保存按钮 -->
+                        <button type="submit" class="px-6 py-2.5 bg-emerald-800 dark:bg-teal-700 text-white rounded-xl text-xs font-semibold tracking-wider hover:bg-emerald-900 dark:hover:bg-teal-600 transition shadow-md active:scale-95">保存修改</button>
                     </div>
                 </div>
             </form>
         </div>
     </div>
+    <!-- ================= 3. 编辑单词卡片重构结束 ================= -->
 
-    <!-- 4. 非阻塞式通知 & 撤销操作 Toast -->
-    <div id="toast" class="fixed bottom-6 right-6 px-5 py-3.5 bg-stone-900 dark:bg-stone-200 text-stone-100 dark:text-stone-900 rounded-xl text-sm shadow-xl transform translate-y-20 opacity-0 transition-all duration-300 pointer-events-auto z-50 flex items-center justify-between space-x-4 min-w-[280px]">
+    <!-- 🏷️ 标签管理 - 自定义模态框（全库改名 / 删除 / 词数概览） -->
+    <div id="tag-manager-modal" class="fixed inset-0 bg-black/60 flex items-center justify-center hidden z-50 p-4 backdrop-blur-sm transition-all duration-300">
+        <!-- 注意：内层不要加 transform（scale-95 之类）。带 transform 会创建独立合成层，
+             12px 小字号在层内按位图重采样渲染，会明显发虚——尤其聚焦触发重绘后。
+             此前的 scale-95 是静态类、从未被 JS 改过，不产生任何动画，纯属性能与清晰度负担。 -->
+        <div class="bg-white dark:bg-stone-800 rounded-2xl border border-stone-200/80 dark:border-stone-700 p-6 w-full max-w-md shadow-2xl flex flex-col max-h-[85vh]">
+            <h3 class="text-base font-bold text-stone-800 dark:text-stone-200 mb-2 flex items-center shrink-0">
+                <span class="w-1.5 h-4 bg-emerald-800 dark:bg-teal-600 rounded-full mr-2"></span>
+                标签管理
+            </h3>
+            <p class="text-xs text-stone-500 dark:text-stone-400 mb-4 leading-relaxed shrink-0">
+                改名与删除都会作用于<strong>全部单词本</strong>。改名后若新名称已存在，两个标签会自动合并。
+            </p>
+            <div id="tag-manager-list" class="flex-1 min-h-0 overflow-y-auto space-y-2 pr-1"></div>
+            <p id="tag-manager-empty" class="hidden text-xs text-stone-400 dark:text-stone-500 text-center py-6">还没有任何标签，去编辑单词卡片添加吧。</p>
+            <div class="flex justify-end pt-4 mt-2 border-t border-stone-100 dark:border-stone-700 shrink-0">
+                <button type="button" onclick="closeTagManager()" class="px-4 py-2 border border-stone-200 dark:border-stone-600 rounded-xl text-xs font-semibold text-stone-500 dark:text-stone-400 hover:bg-stone-50 dark:hover:bg-stone-700 transition">关闭</button>
+            </div>
+        </div>
+    </div>
+
+
+    <!-- 4. 非阻塞式通知 & 撤销操作 Toast（居中偏下：右下角容易落在视觉盲区，尤其宽屏） -->
+    <div id="toast" class="fixed bottom-6 left-1/2 -translate-x-1/2 px-5 py-3.5 bg-stone-900 dark:bg-stone-200 text-stone-100 dark:text-stone-900 rounded-xl text-sm shadow-xl translate-y-20 opacity-0 transition-all duration-300 pointer-events-auto z-[70] flex items-center justify-between space-x-4 max-w-[calc(100vw-2rem)]">
         <span id="toast-message" class="font-medium"></span>
         <button id="toast-action" class="hidden text-emerald-400 dark:text-teal-600 hover:text-emerald-300 dark:hover:text-teal-700 font-bold text-xs shrink-0 px-2 py-1 bg-stone-800 dark:bg-stone-300 hover:bg-stone-700 dark:hover:bg-stone-400 rounded transition">撤销</button>
     </div>

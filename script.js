@@ -52,7 +52,7 @@ const defaultNotebooks = {
     ]
 };
 
-// 预装的轻量化内置离线词典数据库（用于本地秒查检索）
+// 预装的轻量化内置离线词典数据库
 const preloadedDictionary = [
     { word: "美味しい", kana: "おいしい", meaning: "美味的，好吃的" },
     { word: "日本語", kana: "にほんご", meaning: "日语" },
@@ -70,18 +70,16 @@ const preloadedDictionary = [
 let notebooks = {};
 let activeNotebook = "日常";
 let cardFilter = "review"; // "review" (复习中) / "mastered" (已掌握) / "all" (全部)
-let activeTagFilters = []; // 当前选中的全局标签（多选，交集过滤；空数组 = 不筛选）
+let activeTagFilters = []; // 当前选中的全局标签
 let layoutMode = "grid"; // "grid" (平铺卡片) 或者是 "list" (迷你列表)
-let lastDeletedCard = null; // 用于单卡撤销的备忘变量
-let lastMasteredCardId = null; // 用于快速撤销掌握状态的备忘变量
-let db = null; // IndexedDB 实例
+let lastDeletedCard = null;
+let lastMasteredCardId = null;
+let db = null;
 const searchIndexCache = new Map();
 let searchDebounceTimer = null;
-const cardsPerBatch = 24;
+const cardsPerBatch = 48;
 let visibleCardLimit = cardsPerBatch;
 
-// 内存乱序状态：null 表示尚未洗牌；数组为当前上下文下的乱序 id 清单
-// 仅存在于内存，刷新页面即失效——localStorage 永远保持用户写入时的顺序
 let shuffleOrder = null;
 let shuffleContextKey = '';
 
@@ -93,15 +91,10 @@ function fisherYatesShuffle(arr) {
     return arr;
 }
 
-// 乱序上下文 key：故意不含搜索词，避免打字搜索触发重洗
 function getShuffleContextKey() {
     return JSON.stringify([activeNotebook, cardFilter, activeTagFilters]);
 }
 
-// 校验乱序清单与当前词条集合：
-// - 词条"减少"（标记掌握后消失、搜索收窄等）宽容处理，不打乱既有顺序；
-// - 出现"新面孔"（新增单词、切换单词本/筛选）才整体重洗；
-// - 首次渲染（shuffleOrder 为 null）自动洗牌，实现"打开页面就是乱序"。
 function ensureShuffleOrder(filteredList) {
     const contextKey = getShuffleContextKey();
     if (!shuffleOrder || shuffleContextKey !== contextKey) {
@@ -115,15 +108,14 @@ function ensureShuffleOrder(filteredList) {
     }
 }
 
-// 强制重洗当前视图（纯内存操作，不触碰 notebooks 数据与 localStorage）
 function reshuffleDisplay() {
-    shuffleOrder = null; // 置空后由 ensureShuffleOrder 重建
+    shuffleOrder = null;
     visibleCardLimit = cardsPerBatch;
     renderCards();
 }
 let lastCardRenderContext = '';
 
-// 2. 从本地存储加载数据（带向下合并保护机制）
+// 2. 从本地存储加载数据
 function loadData() {
     const oldData = localStorage.getItem('japanese_vocab_list');
     const notebooksData = localStorage.getItem('japanese_vocab_notebooks');
@@ -141,17 +133,15 @@ function loadData() {
         saveData();
         showToast("已为你无痛迁移并保留了之前录入的单词！");
     } else {
-        notebooks = JSON.parse(JSON.stringify(defaultNotebooks)); // 深拷贝预设
+        notebooks = JSON.parse(JSON.stringify(defaultNotebooks));
         activeNotebook = "日常";
         saveData();
     }
-    
-    // 确保活动单词本存在
+
     if (!notebooks[activeNotebook]) {
         activeNotebook = Object.keys(notebooks)[0] || "日常";
     }
 
-    // 数据清洗：确保每一个旧数据卡片都有 mastered 标志
     Object.keys(notebooks).forEach(bookName => {
         notebooks[bookName].forEach(card => {
             if (card.mastered === undefined) {
@@ -163,50 +153,41 @@ function loadData() {
         });
     });
 
-    // 恢复上一次保存在本地的 GitHub Gist Token 状态
     const savedToken = localStorage.getItem('gist_token');
     const savedGistId = localStorage.getItem('gist_id');
     if (savedToken) document.getElementById('gist-token').value = savedToken;
     if (savedGistId) document.getElementById('gist-id').value = savedGistId;
-    
+
     renderNotebookTabs();
     renderCards();
-    initIndexedDB(); // 异步启动本地词典数据库
+    initIndexedDB();
 }
 
-// 3. 将数据保存至 LocalStorage
 function saveData() {
     localStorage.setItem('japanese_vocab_notebooks', JSON.stringify(notebooks));
     localStorage.setItem('japanese_vocab_active', activeNotebook);
     updateHeaderCount();
 }
 
-// 4. bracket 语法共享正则（工厂函数，每次返回新实例避免 /g 的 lastIndex 串扰）
-// 基座字符集：排除空白、方括号、平假名(぀-ゟ)与片假名(゠-ヿ)，
-// 使送り仮名（食[た]べる）和片假名前缀（タクシー運転手[うんてんしゅ]）都不会被吸进 ruby 基座；
-// 但豁免小写 ヵ(㊵)/ヶ(㊶)——汉字熟语成分（如 一ヵ月[いっかげつ]、霞ヶ関[かすみがせき]），需留在基座内。
 function rubyBracketRegex() {
     return /([^\s\[\]\u3040-\u309f\u30a0-\u30f4\u30f7-\u30ff]+)\[([^\]]+)\]/g;
 }
 
-// 4. 解析 bracket 语法格式。比如：日[び] -> <ruby>日<rt>び</rt></ruby> (严格限制平假名粘连，精准对齐)
 function parseRubyText(word, fallbackKana) {
     const bracketRegex = rubyBracketRegex();
-    
+
     if (bracketRegex.test(word)) {
         bracketRegex.lastIndex = 0;
-        // 注意这里安全注入了暗金色 class
         return word.replace(bracketRegex, '<ruby>$1<rt class="dark:text-night-gold">$2</rt></ruby>');
     }
-    
+
     if (fallbackKana && fallbackKana.trim() !== "") {
         return `<ruby>${word}<rt class="dark:text-night-gold">${fallbackKana.trim()}</rt></ruby>`;
     }
-    
+
     return word;
 }
 
-// Search uses display text, reconstructed reading, kana, meaning, and example as one corpus.
 function getCleanWordText(word) {
     return String(word || '').replace(rubyBracketRegex(), '$1');
 }
@@ -261,21 +242,16 @@ function hasGlobalDuplicate(word, excludedCardId = null) {
     }));
 }
 
-// 将 1-10 转换为带圈数字 ➊-➓（更有词典感），超出范围回退为「11.」样式
 function toCircledNum(n) {
     return n >= 1 && n <= 10 ? String.fromCodePoint(0x2789 + n) : `${n}.`;
 }
 
-// 5. 智能分离例句中的日文和中文翻译，以便基于缩放因子动态优雅排版
-// 支持用 / 、／（全角斜杠）或换行分隔的多条例句：单句保持原样式，多句自动渲染为带序号的列表
 function formatExample(exampleText) {
     if (!exampleText) return '';
 
-    // 按分隔符切分为多条例句，丢弃空段
     const segments = String(exampleText).split(/[/／\n]+/).map(s => s.trim()).filter(Boolean);
     if (segments.length === 0) return '';
 
-    // 解析单条例句：从末尾的括号中提取中文翻译（日文部分允许包含空格）
     const parseSegment = (text) => {
         const match = text.match(/^([\s\S]+?)\s*[(（]([^()（）]+)[)）]\s*$/);
         if (match) {
@@ -285,38 +261,36 @@ function formatExample(exampleText) {
     };
 
     const jpLineCls = 'font-japanese text-stone-800 dark:text-stone-200 font-medium leading-relaxed transition-colors';
-    const jpLineStyle = 'font-size: calc(0.84rem * var(--card-scale, 1.0));';
+    const jpLineStyle = 'font-size: calc(0.84rem * var(--font-scale, 1.0) * var(--fit-scale, 1.0));';
     const cnLineCls = 'text-stone-500 dark:text-stone-400 leading-normal transition-colors';
-    const cnLineStyle = 'font-size: calc(0.75rem * var(--card-scale, 1.0));';
+    const cnLineStyle = 'font-size: calc(0.75rem * var(--font-scale, 1.0) * var(--fit-scale, 1.0));';
 
     const renderLine = ({ jp, cn }) => `
         <div class="${jpLineCls}" lang="ja" style="${jpLineStyle}">${jp}</div>
         ${cn ? `<div class="${cnLineCls}" style="${cnLineStyle}">${cn}</div>` : ''}
     `;
 
-    // 多条例句：带序号的列表；单句：与原有样式完全一致
     const bodyHtml = segments.length > 1
         ? segments.map((seg, idx) => `
-            <div class="flex items-start" style="gap: calc(0.4rem * var(--card-scale, 1.0));${idx > 0 ? ' margin-top: calc(0.5rem * var(--card-scale, 1.0));' : ''}">
-                <span class="text-emerald-800/50 dark:text-teal-500/60 shrink-0 transition-colors" style="font-size: calc(0.84rem * var(--card-scale, 1.0)); line-height: 1.625;">${toCircledNum(idx + 1)}</span>
+            <div class="flex items-start" style="gap: calc(0.4rem * var(--font-scale, 1.0) * var(--fit-scale, 1.0));${idx > 0 ? ' margin-top: calc(0.5rem * var(--font-scale, 1.0) * var(--fit-scale, 1.0));' : ''}">
+                <span class="text-emerald-800/50 dark:text-teal-500/60 shrink-0 transition-colors" style="font-size: calc(0.84rem * var(--font-scale, 1.0) * var(--fit-scale, 1.0)); line-height: 1.625;">${toCircledNum(idx + 1)}</span>
                 <div class="min-w-0">${renderLine(parseSegment(seg))}</div>
             </div>
         `).join('')
         : renderLine(parseSegment(segments[0]));
 
     return `
-        <div class="text-left bg-white/70 dark:bg-stone-800/70 rounded-xl border border-stone-200/30 dark:border-stone-700/50 w-full transition-colors" style="padding: calc(0.75rem * var(--card-scale, 1.0));">
-            <span class="uppercase font-bold tracking-wider text-emerald-800/50 dark:text-teal-500/60 block transition-colors" style="font-size: var(--fs-tiny, 0.625rem); margin-bottom: calc(0.25rem * var(--card-scale, 1.0));">例句</span>
+        <div class="text-left bg-white/70 dark:bg-stone-800/70 rounded-xl border border-stone-200/30 dark:border-stone-700/50 w-full transition-colors" style="padding: calc(0.75rem * var(--font-scale, 1.0) * var(--fit-scale, 1.0));">
+            <span class="uppercase font-bold tracking-wider text-emerald-800/50 dark:text-teal-500/60 block transition-colors" style="font-size: var(--fs-tiny, 0.625rem); margin-bottom: calc(0.25rem * var(--font-scale, 1.0) * var(--fit-scale, 1.0));">例句</span>
             ${bodyHtml}
         </div>
     `;
 }
 
-// 6. 更新顶部数量统计及徽章状态
 function updateHeaderCount() {
     const countEl = document.getElementById('card-count');
     const badgeEl = document.getElementById('active-notebook-badge');
-    
+
     const list = notebooks[activeNotebook] || [];
     const reviewedList = list.filter(c => !c.mastered);
     const masteredList = list.filter(c => c.mastered);
@@ -324,58 +298,54 @@ function updateHeaderCount() {
     countEl.innerHTML = `复习中：<strong class="text-emerald-800 dark:text-teal-500 text-sm font-sans mx-0.5">${reviewedList.length}</strong> · 已掌握：<strong class="text-stone-500 dark:text-stone-400 text-sm font-sans mx-0.5">${masteredList.length}</strong>`;
     badgeEl.innerText = activeNotebook;
 
-    renderGlobalTags(); // 更新数量时顺便刷新标签栏
+    renderGlobalTags();
 }
 
-// 6.5 渲染全局标签栏（多选交集：可同时选中多个标签，卡片需同时带所有选中标签才显示）
 function renderGlobalTags() {
     const container = document.getElementById('global-tags-filter');
     if (!container) return;
 
-    // 全局收集：遍历所有单词本的标签，而非仅当前单词本
-    const allTags = new Set();
-    Object.keys(notebooks).forEach(bookName => {
-        notebooks[bookName].forEach(card => {
-            if (card.tags) {
-                card.tags.forEach(tag => allTags.add(tag));
-            }
-        });
-    });
+    const tagCounts = getTagCounts();
+    const allTags = new Set(tagCounts.keys());
 
-    // 清理已被删除（任何卡片都不再使用）的标签选中状态
     activeTagFilters = activeTagFilters.filter(t => allTags.has(t));
 
     const tagsArray = Array.from(allTags);
     container.innerHTML = '';
     if (tagsArray.length === 0) {
         updateTagScrollFade();
-        return; // 如果没有任何标签，不显示筛选栏
+        return;
     }
 
-    const activeCls = "px-3 py-1.5 rounded-lg text-xs font-bold transition duration-200 bg-emerald-100 dark:bg-teal-900/40 text-emerald-800 dark:text-teal-400 border border-emerald-200 dark:border-teal-800 shadow-sm shrink-0";
-    const inactiveCls = "px-3 py-1.5 rounded-lg text-xs font-bold transition duration-200 bg-transparent text-stone-500 dark:text-stone-400 hover:bg-stone-200/50 dark:hover:bg-stone-700/50 whitespace-nowrap border border-transparent shrink-0";
+    // max-w-[70vw]：防止超长标签在窄屏折行时撑出屏幕（宽屏横滑时也一并受益）
+    const activeCls = "px-3 py-1.5 rounded-lg text-xs font-bold transition duration-200 bg-emerald-800/[0.12] dark:bg-teal-300/[0.12] text-emerald-800 dark:text-teal-300 shrink-0 whitespace-nowrap max-w-[70vw] truncate";
+    const inactiveCls = "px-3 py-1.5 rounded-lg text-xs font-bold transition duration-200 bg-transparent text-stone-500 dark:text-stone-400 hover:bg-stone-200/50 dark:hover:bg-stone-700/50 whitespace-nowrap border border-transparent shrink-0 max-w-[70vw] truncate";
 
-    // 「全部」按钮：清空所有选中标签（不是可选状态，空选即全部）
     const allBtn = document.createElement('button');
     allBtn.textContent = '全部';
     allBtn.className = activeTagFilters.length === 0 ? activeCls : inactiveCls;
     allBtn.addEventListener('click', () => clearTagFilters());
     container.appendChild(allBtn);
 
-    // 用 createElement + addEventListener 而非内联 onclick，标签含引号也不会出问题
     tagsArray.forEach(tag => {
         const btn = document.createElement('button');
-        btn.textContent = tag;
-        btn.className = activeTagFilters.includes(tag) ? activeCls : inactiveCls;
+        const isActive = activeTagFilters.includes(tag);
+        // 选中时在标签名后显示总词数（全部单词本、不分掌握状态），未选中保持纯净
+        btn.innerHTML = isActive
+            ? `${tag}<span class="ml-1.5 font-sans text-[10px] opacity-70">${tagCounts.get(tag)}</span>`
+            : tag;
+        btn.className = isActive ? activeCls : inactiveCls;
+        // 无论选中与否都带上完整名称：标签过长会被 truncate 截断，靠 tooltip 补全
+        btn.title = isActive
+            ? `${tag} · 共 ${tagCounts.get(tag)} 个单词带此标签（全部单词本）`
+            : tag;
         btn.addEventListener('click', () => toggleTagFilter(tag));
         container.appendChild(btn);
     });
 
-    // 滚动/滚轮事件只绑定一次（innerHTML 替换不会影响容器本身）
     if (!container.dataset.scrollBound) {
         container.dataset.scrollBound = '1';
         container.addEventListener('scroll', updateTagScrollFade);
-        // 桌面端体验：鼠标悬停在标签栏上时，纵向滚轮转换为横向滑动
         container.addEventListener('wheel', function(e) {
             if (e.deltaY !== 0 && this.scrollWidth > this.clientWidth) {
                 e.preventDefault();
@@ -386,12 +356,293 @@ function renderGlobalTags() {
     updateTagScrollFade();
 }
 
-// 根据滚动位置切换边缘渐隐遮罩，提示「还有内容可滑」
+// ==========================================
+// 🏷️ 标签统计与批量管理（齿轮入口 → 「标签管理」面板）
+// 标签是从所有卡片的 tags 聚合而来的派生数据；改名 = 全库替换 + 撞名自动合并
+// ==========================================
+
+// 统计每个标签的单词数（全部单词本、不分掌握状态）
+function getTagCounts() {
+    const counts = new Map();
+    Object.keys(notebooks).forEach(bookName => {
+        (notebooks[bookName] || []).forEach(card => {
+            if (Array.isArray(card.tags)) {
+                // 同一张卡上的重复标签只算一次
+                new Set(card.tags).forEach(tag => {
+                    counts.set(tag, (counts.get(tag) || 0) + 1);
+                });
+            }
+        });
+    });
+    return counts;
+}
+
+window.openTagManager = function() {
+    const modal = document.getElementById('tag-manager-modal');
+    if (!modal) return;
+    renderTagManagerList();
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+}
+
+window.closeTagManager = function() {
+    const modal = document.getElementById('tag-manager-modal');
+    if (!modal) return;
+    modal.classList.add('hidden');
+    modal.classList.remove('flex');
+}
+
+function renderTagManagerList() {
+    const list = document.getElementById('tag-manager-list');
+    const emptyEl = document.getElementById('tag-manager-empty');
+    if (!list) return;
+
+    const counts = getTagCounts();
+    const tags = Array.from(counts.keys()).sort((a, b) => a.localeCompare(b, 'zh-Hans-CN'));
+    list.innerHTML = '';
+
+    if (tags.length === 0) {
+        if (emptyEl) emptyEl.classList.remove('hidden');
+        return;
+    }
+    if (emptyEl) emptyEl.classList.add('hidden');
+
+    tags.forEach(tag => {
+        const row = document.createElement('div');
+        row.className = 'flex items-center gap-2 px-3 py-2 rounded-lg bg-stone-50 dark:bg-stone-900/60 border border-stone-200/70 dark:border-stone-700/70';
+        row.dataset.tag = tag;
+
+        // 标签名本身就是输入框：外观与纯文本一致（无边框无底色），点击即可改名。
+        // 右侧常驻一支小铅笔作提示——触屏没有 hover，"可编辑"必须有可见线索。
+        const nameWrap = document.createElement('div');
+
+        // 注意：SVG 必须用 createElementNS 创建。用 createElement('svg') 得到的是
+        // HTMLUnknownElement，浏览器不按图形规则渲染，图标会整个消失。
+        // 图标紧贴文字：容器不加 gap，靠图标自身负左边距微调。
+        nameWrap.className = 'relative flex-1 min-w-0 flex items-center rounded-md px-1.5 py-0.5 border border-transparent hover:border-stone-200 dark:hover:border-stone-600 hover:bg-stone-100 dark:hover:bg-stone-800/70 focus-within:border-emerald-700 dark:focus-within:border-teal-600 transition-colors cursor-text';
+
+        const SVG_NS = 'http://www.w3.org/2000/svg';
+        const nameInput = document.createElement('input');
+        nameInput.type = 'text';
+        nameInput.value = tag;
+        nameInput.title = '点击即可修改标签名（作用于全部单词本）';
+        nameInput.className = 'bg-transparent border-0 p-0 text-xs font-semibold text-stone-700 dark:text-stone-200 focus:outline-none cursor-text';
+        // 输入框宽度跟随文字内容：size 属性按字符数估算，中日韩宽字符会被低估一半，
+        // 因此改用隐藏 span 实测像素宽度，让铅笔精确贴住字尾而非被推到行尾。
+        const measurer = document.createElement('span');
+        measurer.className = 'absolute invisible whitespace-pre text-xs font-semibold pointer-events-none';
+        measurer.setAttribute('aria-hidden', 'true');
+        const syncInputWidth = () => {
+            measurer.textContent = nameInput.value || ' ';
+            const w = measurer.getBoundingClientRect().width;
+            // 加 1px 容差避免光标挤在最后一字上
+            nameInput.style.width = Math.max(Math.ceil(w) + 1, 12) + 'px';
+        };
+        // measurer 必须在 DOM 内才能测出宽度，故先挂载再首次同步
+        nameWrap.appendChild(measurer);
+        nameInput.addEventListener('input', syncInputWidth);
+        // 字体在 document.fonts.ready 后才稳定，此时再校准一次宽度。
+        // 注意：不要在这里挂 window resize 监听——列表每次重建都会新增监听器且无从清理，
+        // 面板打开期间也没必要跟随窗口变化（关闭再开会重新测量）。
+        if (document.fonts && document.fonts.ready) document.fonts.ready.then(syncInputWidth);
+        nameInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') { e.preventDefault(); nameInput.blur(); }
+            if (e.key === 'Escape') { e.preventDefault(); nameInput.value = tag; syncInputWidth(); nameInput.blur(); }
+        });
+        nameInput.addEventListener('blur', () => {
+            const next = nameInput.value.trim();
+            if (next === tag) { nameInput.value = tag; syncInputWidth(); return; }
+            renameTagGlobally(tag, next);
+        });
+
+        const pencil = document.createElementNS(SVG_NS, 'svg');
+        pencil.setAttribute('viewBox', '0 0 24 24');
+        pencil.setAttribute('fill', 'none');
+        pencil.setAttribute('stroke', 'currentColor');
+        pencil.setAttribute('stroke-width', '2');
+        pencil.setAttribute('stroke-linecap', 'round');
+        pencil.setAttribute('stroke-linejoin', 'round');
+        pencil.setAttribute('aria-hidden', 'true');
+        pencil.setAttribute('class', 'w-3.5 h-3.5 shrink-0 ml-1.5 mr-1.5 text-stone-400 dark:text-stone-500 pointer-events-none transition-colors');
+        const pencilPath = document.createElementNS(SVG_NS, 'path');
+        pencilPath.setAttribute('d', 'M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z');
+        pencil.appendChild(pencilPath);
+        // 点击整块（含铅笔）都聚焦到输入框，扩大触屏的可点区域
+        nameWrap.addEventListener('click', () => nameInput.focus());
+
+        nameWrap.appendChild(nameInput);
+        nameWrap.appendChild(pencil);
+        syncInputWidth();
+        syncInputWidth();
+
+        // 词数：用项目主字体（此前误用等宽字体，Windows 上会回退成宋体）
+        const count = document.createElement('span');
+        count.className = 'shrink-0 text-[11px] text-stone-400 dark:text-stone-500';
+        count.textContent = `${counts.get(tag)} 词`;
+
+        const delBtn = document.createElement('button');
+        delBtn.type = 'button';
+        delBtn.className = 'shrink-0 px-2 py-1 rounded-md text-[11px] font-semibold text-stone-400 dark:text-stone-500 border border-transparent hover:text-red-600 dark:hover:text-red-400 hover:border-red-300 dark:hover:border-red-700 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors';
+        delBtn.textContent = '删除';
+        delBtn.title = `删除标签「${tag}」（影响 ${counts.get(tag)} 个单词，8 秒内可撤销）`;
+        // 防误触：按下与抬起若位置偏移超过 8px（触屏滑动/鼠标拖拽），视为滑动而非点击
+        let downX = 0, downY = 0, downAt = 0;
+        delBtn.addEventListener('pointerdown', (e) => {
+            downX = e.clientX; downY = e.clientY; downAt = Date.now();
+        });
+        delBtn.addEventListener('click', (e) => {
+            const moved = Math.abs(e.clientX - downX) > 8 || Math.abs(e.clientY - downY) > 8;
+            const tooSlow = Date.now() - downAt > 800; // 长按不触发，避免"按着犹豫"的误判
+            if (moved) { e.preventDefault(); e.stopPropagation(); return; }
+            if (tooSlow) { e.preventDefault(); e.stopPropagation(); return; }
+            deleteTagGlobally(tag, counts.get(tag));
+        });
+
+        row.appendChild(nameWrap);
+        row.appendChild(count);
+        row.appendChild(delBtn);
+        list.appendChild(row);
+    });
+}
+
+// 全库改名：所有单词本中带 oldTag 的卡片替换为 newTag；newTag 已存在则自动合并
+window.renameTagGlobally = function(oldTag, newTag) {
+    if (!newTag) { showToast('标签名不能为空'); return; }
+    if (newTag === oldTag) { renderTagManagerList(); return; }
+
+    let affected = 0;
+    Object.keys(notebooks).forEach(bookName => {
+        (notebooks[bookName] || []).forEach(card => {
+            if (!Array.isArray(card.tags) || !card.tags.includes(oldTag)) return;
+            // 去重：替换后若与已有标签重复，或同一卡上有多个 oldTag，都只保留一个
+            const next = [];
+            card.tags.forEach(t => {
+                const mapped = t === oldTag ? newTag : t;
+                if (!next.includes(mapped)) next.push(mapped);
+            });
+            card.tags = next;
+            affected++;
+        });
+    });
+
+    if (affected === 0) { renderTagManagerList(); return; }
+
+    // 选中过滤里若有旧标签名，同步跟上，避免筛选静默失效
+    const idx = activeTagFilters.indexOf(oldTag);
+    if (idx >= 0) activeTagFilters[idx] = newTag;
+
+    const merged = getTagCounts().has(newTag) && newTag !== oldTag;
+    saveData();
+    renderGlobalTags();
+    renderCards();
+    renderTagManagerList();
+    renderEditTagSuggestionsIfOpen();
+    showToast(merged
+        ? `已把「${oldTag}」合并进「${newTag}」，共影响 ${affected} 个单词`
+        : `已将标签「${oldTag}」改名为「${newTag}」，共影响 ${affected} 个单词`);
+}
+
+// ==========================================
+// ⚠️ 通用确认弹窗（替代浏览器原生 confirm，保持 UI 风格统一）
+// 用法：openConfirmModal({ title, message, confirmText, cancelText, danger, onConfirm })
+// ==========================================
+let confirmModalCallback = null;
+
+window.openConfirmModal = function(options) {
+    const opts = options || {};
+    const modal = document.getElementById('confirm-modal');
+    const titleEl = document.getElementById('confirm-modal-title');
+    const messageEl = document.getElementById('confirm-modal-message');
+    const okBtn = document.getElementById('confirm-modal-ok');
+    if (!modal || !titleEl || !messageEl || !okBtn) return;
+
+    titleEl.textContent = opts.title || '确认操作？';
+    // message 支持换行：\n 转成 <br>，同时对内容做转义，避免标签名里的特殊字符破坏结构
+    const escapeHtml = (s) => String(s).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+    messageEl.innerHTML = escapeHtml(opts.message || '').replace(/\n/g, '<br>');
+    okBtn.textContent = opts.confirmText || '确认';
+
+    const isDanger = opts.danger !== false;
+    okBtn.className = isDanger
+        ? 'px-5 py-2 bg-red-600 dark:bg-red-700 text-white rounded-xl text-xs font-semibold hover:bg-red-700 dark:hover:bg-red-600 transition shadow-sm'
+        : 'px-5 py-2 bg-emerald-800 dark:bg-teal-700 text-white rounded-xl text-xs font-semibold hover:bg-emerald-900 dark:hover:bg-teal-600 transition shadow-sm';
+
+    confirmModalCallback = typeof opts.onConfirm === 'function' ? opts.onConfirm : null;
+
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+}
+
+window.closeConfirmModal = function() {
+    const modal = document.getElementById('confirm-modal');
+    if (!modal) return;
+    modal.classList.add('hidden');
+    modal.classList.remove('flex');
+    confirmModalCallback = null;
+}
+
+window.submitConfirmModal = function() {
+    const cb = confirmModalCallback;
+    closeConfirmModal();
+    if (cb) cb();
+}
+
+// 全库删除标签：从所有卡片移除（卡片本身保留）。
+// 采用「立即执行 + Toast 撤销」而非叠一层确认弹窗——标签是派生数据，
+// 误删的补救成本高，撤销比事后确认更贴合真实使用节奏。
+function deleteTagGlobally(tag, count) {
+    // 留一份可回滚的快照：每个被改动的卡片记录它原本的 tags
+    const snapshot = [];
+    Object.keys(notebooks).forEach(bookName => {
+        (notebooks[bookName] || []).forEach(card => {
+            if (Array.isArray(card.tags) && card.tags.includes(tag)) {
+                snapshot.push({ card, tags: card.tags.slice() });
+            }
+        });
+    });
+
+    const filterSnapshot = activeTagFilters.slice();
+
+    // 执行删除
+    snapshot.forEach(({ card }) => {
+        card.tags = card.tags.filter(t => t !== tag);
+    });
+    activeTagFilters = activeTagFilters.filter(t => t !== tag);
+
+    saveData();
+    renderGlobalTags();
+    renderCards();
+    renderTagManagerList();
+    renderEditTagSuggestionsIfOpen();
+
+    showToast(`已从 ${snapshot.length} 个单词上移除标签「${tag}」`, () => {
+        // 撤销：把每个卡片原本的 tags 覆盖回去（不区分是否被后续操作改过）
+        snapshot.forEach(({ card, tags }) => { card.tags = tags.slice(); });
+        activeTagFilters = filterSnapshot;
+
+        saveData();
+        renderGlobalTags();
+        renderCards();
+        renderTagManagerList();
+        renderEditTagSuggestionsIfOpen();
+
+        showToast('撤销成功，标签已恢复');
+    }, 8000);
+}
+
+// 若编辑卡片弹窗正开着，同步刷新其标签建议列表，避免显示已被删除的标签
+function renderEditTagSuggestionsIfOpen() {
+    const modal = document.getElementById('edit-card-modal');
+    if (modal && !modal.classList.contains('hidden')) {
+        if (typeof renderEditTags === 'function') renderEditTags();
+    }
+}
+
 function updateTagScrollFade() {
     const el = document.getElementById('global-tags-filter');
     if (!el) return;
     el.classList.remove('tag-fade-left', 'tag-fade-right', 'tag-fade-both');
-    if (el.scrollWidth <= el.clientWidth + 1) return; // 内容没超出，不需要遮罩
+    if (el.scrollWidth <= el.clientWidth + 1) return;
     const atStart = el.scrollLeft <= 1;
     const atEnd = el.scrollLeft + el.clientWidth >= el.scrollWidth - 1;
     if (!atStart && !atEnd) el.classList.add('tag-fade-both');
@@ -399,7 +650,6 @@ function updateTagScrollFade() {
     else if (!atStart) el.classList.add('tag-fade-left');
 }
 
-// 点击标签：多选 toggle，再次点击取消
 window.toggleTagFilter = function(tag) {
     const idx = activeTagFilters.indexOf(tag);
     if (idx >= 0) {
@@ -411,7 +661,6 @@ window.toggleTagFilter = function(tag) {
     renderCards();
 }
 
-// 「全部」按钮：清空所有选中标签
 window.clearTagFilters = function() {
     if (activeTagFilters.length === 0) return;
     activeTagFilters = [];
@@ -419,14 +668,13 @@ window.clearTagFilters = function() {
     renderCards();
 }
 
-// 7. 弹窗非阻塞提示
-function showToast(msg, onUndo = null) {
+function showToast(msg, onUndo = null, duration = 4000) {
     const toast = document.getElementById('toast');
     const toastMsg = document.getElementById('toast-message');
     const toastAction = document.getElementById('toast-action');
-    
+
     toastMsg.innerText = msg;
-    
+
     if (onUndo) {
         toastAction.classList.remove('hidden');
         toastAction.onclick = () => {
@@ -436,16 +684,15 @@ function showToast(msg, onUndo = null) {
     } else {
         toastAction.classList.add('hidden');
     }
-    
+
     toast.classList.remove('translate-y-20', 'opacity-0');
-    
+
     if (window.toastTimeout) clearTimeout(window.toastTimeout);
     window.toastTimeout = setTimeout(() => {
         toast.classList.add('translate-y-20', 'opacity-0');
-    }, 4000);
+    }, duration);
 }
 
-// 8. 切换 单词掌握/复习 状态分类筛选器（三档：复习中 / 已掌握 / 全部）
 window.setCardFilter = function(filter) {
     cardFilter = filter;
     const btnIds = { review: 'filter-review-btn', mastered: 'filter-mastered-btn', all: 'filter-all-btn' };
@@ -458,7 +705,6 @@ window.setCardFilter = function(filter) {
     renderCards();
 }
 
-// 8.5 新增：卡片平铺与迷你列表视图切换
 window.setViewMode = function(mode) {
     layoutMode = mode;
     const gridBtn = document.getElementById('view-grid-btn');
@@ -480,29 +726,30 @@ window.setViewMode = function(mode) {
     renderCards();
 }
 
-// 8.6 修复：无级卡片物理宽度及高度同步等比例缩放 (改变 --card-width 促使 CSS Grid 自动重排)
 window.changeCardScale = function(val) {
     const scale = parseFloat(val);
     const grid = document.getElementById('cards-grid');
     grid.style.setProperty('--card-scale', scale);
-    // 固定比例缩放：宽 300px，高 380px
+    // 密度模式：卡片缩小时字号按 0.6 次幂缩得比卡片慢（小卡更易读、密度更高），
+    // 放大时字号与卡片完全等比（拉大细看单词）
+    grid.style.setProperty('--font-scale', scale >= 1 ? scale : Math.pow(scale, 0.6));
     grid.style.setProperty('--card-width', (300 * scale) + 'px');
     grid.style.setProperty('--card-height', (380 * scale) + 'px');
     grid.dataset.compact = scale < 0.9 ? 'true' : 'false';
     document.getElementById('scale-value').innerText = Math.round(scale * 100) + '%';
+    // 卡片尺寸变了，可见区域内的卡片需要重新做 fit-to-card 适配（防抖批处理）
+    scheduleRefit();
 }
 
-// 9. 渲染单词本分类标签
 function renderNotebookTabs() {
     const container = document.getElementById('notebook-tabs');
     const names = Object.keys(notebooks);
-    
+
     container.innerHTML = names.map(name => {
         const isActive = name === activeNotebook;
         const activeStyle = "bg-emerald-800 dark:bg-teal-700 text-white shadow-sm font-semibold";
         const inactiveStyle = "bg-white dark:bg-stone-800 hover:bg-stone-100/80 dark:hover:bg-stone-700 text-stone-600 dark:text-stone-400 border border-stone-200 dark:border-stone-700 hover:border-stone-300 dark:hover:border-stone-600";
-        
-        // 计算该本未掌握的生词
+
         const reviewCount = notebooks[name].filter(c => !c.mastered).length;
 
         return `
@@ -516,13 +763,12 @@ function renderNotebookTabs() {
 
 window.switchNotebook = function(name) {
     activeNotebook = name;
-    activeTagFilters = []; // 切换分类时重置标签过滤
+    activeTagFilters = [];
     saveData();
     renderNotebookTabs();
     renderCards();
 }
 
-// 10. 新建/删除分类模态框逻辑
 window.openNewNotebookModal = function() {
     const modal = document.getElementById('new-notebook-modal');
     const input = document.getElementById('new-notebook-input');
@@ -557,21 +803,18 @@ window.submitNewNotebook = function() {
     showToast(`单词本【${newName}】创建成功！`);
 }
 
-// ==========================================
-// ✏️ 新增：重命名单词本功能
-// ==========================================
 window.openRenameNotebookModal = function() {
     const modal = document.getElementById('rename-notebook-modal');
     const input = document.getElementById('rename-notebook-input');
     const oldNameSpan = document.getElementById('rename-notebook-oldname');
-    
+
     oldNameSpan.innerText = activeNotebook;
-    input.value = activeNotebook; // 自动填入当前名字方便修改
-    
+    input.value = activeNotebook;
+
     modal.classList.remove('hidden');
     setTimeout(() => {
         input.focus();
-        input.select(); // 全选文本，方便直接输入替换
+        input.select();
     }, 150);
 }
 
@@ -591,26 +834,24 @@ window.submitRenameNotebook = function() {
     }
     if (newName === oldName) {
         closeRenameNotebookModal();
-        return; // 名字没变，直接关闭
+        return;
     }
     if (notebooks[newName]) {
         showToast("该单词本名称已存在，请换一个名字！");
         return;
     }
 
-    // 安全的数据迁移：将旧名称下的数组直接赋给新名称，并删除旧名称
     notebooks[newName] = notebooks[oldName];
     delete notebooks[oldName];
-    
-    activeNotebook = newName; // 切换当前焦点到新单词本
-    
+
+    activeNotebook = newName;
+
     saveData();
     closeRenameNotebookModal();
     renderNotebookTabs();
     renderCards();
     showToast(`已成功将单词本重命名为【${newName}】`);
 }
-
 
 window.openDeleteNotebookConfirm = function() {
     const names = Object.keys(notebooks);
@@ -635,7 +876,7 @@ window.submitDeleteNotebook = function() {
     const toDelete = activeNotebook;
     delete notebooks[toDelete];
     activeNotebook = Object.keys(notebooks)[0];
-    
+
     saveData();
     closeDeleteNotebookConfirm();
     renderNotebookTabs();
@@ -643,7 +884,6 @@ window.submitDeleteNotebook = function() {
     showToast(`已永久删除单词本【${toDelete}】`);
 }
 
-// 📝 迷你列表模式下的手风琴点击展开折叠逻辑
 window.toggleListExpand = function(element) {
     if (layoutMode !== "list") return;
     const expandedSection = element.querySelector('.list-expand-area');
@@ -657,18 +897,15 @@ window.toggleListExpand = function(element) {
     }
 }
 
-// 🌟 共享逻辑：计算当前界面实际展示的卡片集合（渲染与导出共用，保证“所见即所导”）
 function getDisplayedCards() {
     const searchVal = document.getElementById('search-input').value;
     const searchTerms = getSearchTerms(searchVal);
     const isGlobalSearch = searchTerms.length > 0;
-    // 全局范围：搜索或选中标签时，数据源扩展为全部单词本
     const isGlobalScope = isGlobalSearch || activeTagFilters.length > 0;
     const currentList = isGlobalScope
         ? Object.entries(notebooks).flatMap(([notebookName, cards]) => cards.map(card => ({ ...card, sourceNotebook: notebookName })))
         : (notebooks[activeNotebook] || []).map(card => ({ ...card, sourceNotebook: activeNotebook }));
 
-    // 1. 过滤掌握状态（与搜索/标签正交组合，任何场景下都生效）
     let filteredList = currentList.filter(item => {
         if (cardFilter === "all") return true;
         if (cardFilter === "review") {
@@ -678,17 +915,14 @@ function getDisplayedCards() {
         }
     });
 
-    // 1.5 过滤标签（多选交集：卡片需同时带所有选中的标签）
     if (activeTagFilters.length > 0) {
         filteredList = filteredList.filter(item =>
             item.tags && activeTagFilters.every(t => item.tags.includes(t))
         );
     }
 
-    // 2. 过滤搜索关键词
     filteredList = filteredList.filter(item => matchesSearchTerms(item, searchTerms));
 
-    // 3. 应用内存乱序（不落盘；localStorage 中的写入顺序永远不变）
     ensureShuffleOrder(filteredList);
     if (shuffleOrder) {
         const rank = new Map(shuffleOrder.map((id, idx) => [id, idx]));
@@ -697,7 +931,6 @@ function getDisplayedCards() {
     return { filteredList, isGlobalSearch, isGlobalScope };
 }
 
-// 11. 核心渲染机制：动态组装单词卡片网格 (支持局部比例字号缩放及阻尼内部滚动)
 function renderCards() {
     const grid = document.getElementById('cards-grid');
     const emptyState = document.getElementById('empty-state');
@@ -712,13 +945,12 @@ function renderCards() {
     const totalCardCount = filteredList.length;
     const visibleCards = filteredList.slice(0, visibleCardLimit);
 
-    // 3. 空状态展示
     if (filteredList.length === 0) {
         grid.innerHTML = '';
         updateLoadMoreControl(0);
         emptyState.classList.remove('hidden');
         emptyState.classList.add('flex');
-        
+
         const titleEl = document.getElementById('empty-state-title');
         const subTitleEl = document.getElementById('empty-state-subtitle');
         if (activeTagFilters.length > 0) {
@@ -744,31 +976,27 @@ function renderCards() {
         emptyState.classList.add('hidden');
     }
 
-    // 根据布局模式切换网格类名，平铺用 3D Grid，列表采用单列平铺
     if (layoutMode === "grid") {
         grid.className = "adaptive-grid";
     } else {
         grid.className = "grid grid-cols-1 gap-3 max-w-2xl mx-auto";
     }
 
-    // 4. 循环生成卡片元素（全量渲染路径；加载更多走增量追加，见 loadMoreCards）
     grid.innerHTML = visibleCards.map(item => buildCardHtml(item, isGlobalScope)).join('');
+    observeCardsForFit();
 
     updateLoadMoreControl(totalCardCount);
     updateHeaderCount();
 }
 
-// 4.1 单张卡片 HTML 组装（全量渲染与增量追加两条路径共用）
 function buildCardHtml(item, isGlobalScope) {
         const rubyBack = parseRubyText(item.word, item.kana);
-        // 正面仅保留纯汉字，防止剧透假名
         const cleanWordFront = item.word.replace(/([^\s\[\]]+)\[([^\]]+)\]/g, '$1');
         const sourceNotebook = item.sourceNotebook || activeNotebook;
         const notebookBadgeHtml = isGlobalScope
-            ? `<span class="px-1.5 py-0.5 rounded-md bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-300 font-medium" style="font-size: var(--fs-tiny);">${sourceNotebook} · ${item.mastered ? '已掌握' : '复习中'}</span>`
+            ? `<span class="px-1.5 py-0.5 rounded-md bg-stone-100 dark:bg-stone-700/60 text-stone-500 dark:text-stone-300 font-medium" style="font-size: var(--fs-tiny);">${sourceNotebook} · ${item.mastered ? '已掌握' : '复习中'}</span>`
             : '';
 
-        // 已掌握按钮通用逻辑 (支持等比例Padding和高度)
         const masterButtonHtml = `
             <button onclick="toggleCardMastered(event, '${item.id}', '${sourceNotebook}')" class="${item.mastered ? 'text-emerald-600 dark:text-teal-400 hover:text-emerald-700 dark:hover:text-teal-300 bg-emerald-50 dark:bg-teal-900/30' : 'text-stone-300 dark:text-stone-600 hover:text-emerald-600 dark:hover:text-teal-400 hover:bg-emerald-50 dark:hover:bg-stone-700/50'} rounded-lg transition duration-150 shrink-0 flex items-center justify-center" style="padding: calc(0.375rem * var(--card-scale, 1.0));" title="${item.mastered ? '移回复习中' : '标记为已掌握'}">
                 <svg class="w-4 h-4" style="width: calc(1rem * var(--card-scale, 1.0)); height: calc(1rem * var(--card-scale, 1.0));" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -777,27 +1005,22 @@ function buildCardHtml(item, isGlobalScope) {
             </button>
         `;
 
-        // 编辑按钮通用逻辑
         const editButtonHtml = `
-            <button onclick="openEditCardModal(event, '${item.id}', '${sourceNotebook}')" class="text-stone-300 dark:text-stone-600 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-stone-700/50 rounded-lg transition duration-150 shrink-0 flex items-center justify-center" style="padding: calc(0.375rem * var(--card-scale, 1.0));" title="修改卡片内容">
+            <button onclick="openEditCardModal(event, '${item.id}', '${sourceNotebook}')" class="text-stone-300 dark:text-stone-600 hover:text-emerald-600 dark:hover:text-teal-400 hover:bg-emerald-50 dark:hover:bg-stone-700/50 rounded-lg transition duration-150 shrink-0 flex items-center justify-center" style="padding: calc(0.375rem * var(--card-scale, 1.0));" title="修改卡片内容">
                 <svg class="w-4 h-4" style="width: calc(1rem * var(--card-scale, 1.0)); height: calc(1rem * var(--card-scale, 1.0));" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg>
             </button>
         `;
 
-        // 🌟 分流：1. 平铺卡片视图
-        // ⚠️ 重点防御：已彻底移除 card-inner、card-front 等核心 3D 容器的 transition-colors
         if (layoutMode === "grid") {
             let tagsHtml = '';
             if (item.tags && item.tags.length > 0) {
-                // 灰绿低饱和标签：透明度压暗避免过绿；单行排列由背面顶栏内嵌容器控制
-                tagsHtml = item.tags.map(tag => `<span class="px-1.5 py-0.5 bg-emerald-100/60 dark:bg-teal-900/25 text-emerald-800/75 dark:text-teal-300/80 rounded text-[10px] mr-1 border border-emerald-200/40 dark:border-teal-800/40 font-medium shrink-0">${tag}</span>`).join('');
+                tagsHtml = item.tags.map(tag => `<span class="px-1.5 py-0.5 bg-emerald-800/[0.12] dark:bg-teal-300/[0.12] text-emerald-800 dark:text-teal-300 rounded text-[10px] mr-1 font-medium shrink-0">${tag}</span>`).join('');
             }
 
             return `
                 <div class="perspective group cursor-pointer card-scale-box" data-has-example="${item.example ? 'true' : 'false'}" onclick="flipCard(this)">
                     <div class="card-inner relative w-full h-full rounded-2xl shadow-sm border border-stone-200/80 dark:border-stone-700/80 bg-white dark:bg-stone-800">
-                        
-                        <!-- 卡片正面 -->
+
                         <div class="card-front absolute inset-0 w-full h-full flex flex-col justify-between rounded-2xl bg-white dark:bg-stone-800 overflow-hidden" style="padding: var(--card-pad);">
                             <div class="flex justify-between items-center w-full shrink-0" style="margin-bottom: var(--spacing-gap);">
                                 <div class="flex items-center gap-1.5 min-w-0">
@@ -809,19 +1032,18 @@ function buildCardHtml(item, isGlobalScope) {
                                     ${masterButtonHtml}
                                 </div>
                             </div>
-                            
+
                             <div class="flex-1 min-h-0 flex items-center w-full">
                                 <div class="card-content-scroll w-full max-h-full text-center">
                                     <h3 class="font-japanese font-medium tracking-wide text-stone-800 dark:text-stone-200 leading-normal break-words" lang="ja" style="font-size: var(--fs-title); overflow-wrap: anywhere; word-break: normal;">${cleanWordFront}</h3>
                                 </div>
                             </div>
-                            
+
                             <div class="text-center shrink-0" style="margin-top: var(--spacing-gap);">
                                 <span class="text-emerald-800/60 dark:text-teal-600/80 group-hover:text-emerald-800 dark:group-hover:text-teal-500 duration-200 font-medium" style="font-size: var(--fs-small);">点击翻面 →</span>
                             </div>
                         </div>
-                        
-                        <!-- 卡片背面 (引入防溢出安全区域与局部柔和滚动阻尼) -->
+
                         <div class="card-back absolute inset-0 w-full h-full flex flex-col justify-between rounded-2xl bg-[#faf9f4] dark:bg-[#201d1c] border border-stone-200/50 dark:border-stone-700/50 overflow-hidden" style="padding: var(--card-pad);">
                             <div class="flex justify-between items-center w-full shrink-0" style="margin-bottom: var(--spacing-gap);">
                                 <div class="flex items-center gap-1.5 min-w-0 shrink-0">
@@ -837,11 +1059,9 @@ function buildCardHtml(item, isGlobalScope) {
                                 </div>
                             </div>
 
-                            <!-- 主要内容区：卡片缩小时此区域自动自适应并拥有微型滚动条，绝不溢出被剪裁 -->
                             <div class="flex-grow w-full overflow-hidden relative">
                                 <div class="card-content-scroll w-full h-full flex flex-col justify-start">
-                                    <!-- 利用 margin: auto 0 让内容少时自动居中，内容多时靠顶对齐并可向下滚动，永不遮挡 -->
-                                    <div class="w-full my-auto flex flex-col" style="gap: var(--spacing-gap);">
+                                    <div class="w-full my-auto flex flex-col" style="gap: calc(var(--spacing-gap) * var(--fit-scale, 1.0));">
                                         <div class="text-center">
                                             <h3 class="font-japanese font-medium text-stone-900 dark:text-stone-100 leading-normal inline-block" lang="ja" style="font-size: var(--fs-sub);">${rubyBack}</h3>
                                         </div>
@@ -852,55 +1072,46 @@ function buildCardHtml(item, isGlobalScope) {
                                     </div>
                                 </div>
                             </div>
-
-                            <div class="text-center shrink-0" style="margin-top: var(--spacing-gap);">
-                                <span class="text-stone-400 dark:text-stone-600" style="font-size: var(--fs-tiny);">点击转回正面</span>
-                            </div>
                         </div>
-
                     </div>
                 </div>
             `;
         } else {
-            // 🌟 分流：2. 📝 极简迷你列表模式 (手风琴折叠收纳)
             let tagsHtmlList = '';
             if (item.tags && item.tags.length > 0) {
-                tagsHtmlList = item.tags.map(tag => `<span class="px-1.5 py-0.5 bg-emerald-100/60 dark:bg-teal-900/25 text-emerald-800/75 dark:text-teal-300/80 rounded text-[10px] mr-1 mb-1 border border-emerald-200/40 dark:border-teal-800/40 font-medium">${tag}</span>`).join('');
+                tagsHtmlList = item.tags.map(tag => `<span class="px-1.5 py-0.5 bg-emerald-800/[0.12] dark:bg-teal-300/[0.12] text-emerald-800 dark:text-teal-300 rounded text-[10px] font-medium">${tag}</span>`).join('');
             }
 
             return `
                 <div class="bg-white dark:bg-stone-800 border border-stone-200/80 dark:border-stone-700/80 rounded-xl shadow-sm hover:border-emerald-600/20 dark:hover:border-teal-600/30 transition-all duration-200 overflow-hidden cursor-pointer" onclick="toggleListExpand(this)">
-                    <!-- 基础一览横条 -->
-                    <div class="px-5 py-3.5 flex justify-between items-center bg-white dark:bg-stone-800 hover:bg-stone-50/50 dark:hover:bg-stone-800/80 transition-colors">
-                        <div class="flex items-center space-x-3">
-                            <span class="w-1.5 h-1.5 bg-emerald-800 dark:bg-teal-500 rounded-full transition-colors"></span>
+                    <div class="px-5 py-3.5 flex justify-between items-center gap-3 bg-white dark:bg-stone-800 hover:bg-stone-50/50 dark:hover:bg-stone-800/80 transition-colors">
+                        <div class="flex items-center flex-1 min-w-0 flex-wrap gap-x-3 gap-y-1">
+                            <span class="w-1.5 h-1.5 bg-emerald-800 dark:bg-teal-500 rounded-full transition-colors shrink-0"></span>
                             <span class="font-japanese text-base font-semibold text-stone-800 dark:text-stone-200 tracking-wide transition-colors" lang="ja">${cleanWordFront}</span>
-                            ${isGlobalScope ? `<span class="text-[10px] text-blue-600 dark:text-blue-300 bg-blue-50 dark:bg-blue-900/30 px-1.5 py-0.5 rounded-md">${sourceNotebook} · ${item.mastered ? '已掌握' : '复习中'}</span>` : ''}
+                            ${isGlobalScope ? `<span class="text-[10px] text-stone-500 dark:text-stone-300 bg-stone-100 dark:bg-stone-700/60 px-1.5 py-0.5 rounded-md shrink-0">${sourceNotebook} · ${item.mastered ? '已掌握' : '复习中'}</span>` : ''}
+                            ${tagsHtmlList ? `<div class="flex flex-wrap gap-1 min-w-0">${tagsHtmlList}</div>` : ''}
                         </div>
-                        <div class="flex items-center space-x-2.5">
+                        <div class="flex items-center space-x-2.5 shrink-0">
                             ${editButtonHtml}
                             ${masterButtonHtml}
-                            <!-- 顺滑旋转折叠箭头 -->
                             <svg class="w-4 h-4 text-stone-400 dark:text-stone-500 transition-transform duration-300 transform arrow-icon shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7"></path>
                             </svg>
                         </div>
                     </div>
-                    
-                    <!-- 展开区域 (假名标注、中文释义和例句) -->
+
                     <div class="list-expand-area hidden border-t border-stone-100 dark:border-stone-700/50 bg-[#faf9f4]/80 dark:bg-stone-800/50 px-6 py-4 space-y-4 transition-colors">
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
                             <div class="flex items-center space-x-2">
-                                <span class="text-xs font-bold text-stone-400 dark:text-stone-500 uppercase tracking-wider shrink-0 transition-colors">假名读音:</span>
+                                <span class="text-xs font-bold text-stone-400 dark:text-stone-500 uppercase tracking-wider shrink-0 transition-colors">读音:</span>
                                 <span class="font-japanese font-medium text-stone-900 dark:text-stone-100 leading-normal inline-block transition-colors" lang="ja">${rubyBack}</span>
                             </div>
                             <div class="flex items-center space-x-2">
-                                <span class="text-xs font-bold text-stone-400 dark:text-stone-500 uppercase tracking-wider shrink-0 transition-colors">中文释义:</span>
+                                <span class="text-xs font-bold text-stone-400 dark:text-stone-500 uppercase tracking-wider shrink-0 transition-colors">释义:</span>
                                 <span class="text-stone-800 dark:text-stone-200 font-semibold px-2.5 py-1 bg-stone-200/40 dark:bg-stone-700/50 rounded-lg inline-block transition-colors">${item.meaning}</span>
                             </div>
                         </div>
                         ${item.example ? formatExample(item.example) : ''}
-                        ${tagsHtmlList ? `<div class="pt-2 flex flex-wrap border-t border-stone-200/40 dark:border-stone-700/40">${tagsHtmlList}</div>` : ''}
                     </div>
                 </div>
             `;
@@ -910,19 +1121,110 @@ function buildCardHtml(item, isGlobalScope) {
 function updateLoadMoreControl(totalCardCount) {
     const container = document.getElementById('load-more-container');
     const status = document.getElementById('load-more-status');
+    const manualBtn = document.getElementById('load-more-btn');
     const visibleCount = Math.min(visibleCardLimit, totalCardCount);
-    if (totalCardCount <= visibleCardLimit) {
+
+    if (totalCardCount === 0) {
         container.classList.add('hidden');
         container.classList.remove('flex');
         return;
     }
-    status.textContent = `已显示 ${visibleCount} / ${totalCardCount} 张卡片`;
+
+    // 状态行常驻：成为「到底了没」的明确路标，不再是一闪而过的幽灵按钮
     container.classList.remove('hidden');
     container.classList.add('flex');
+
+    if (visibleCount >= totalCardCount) {
+        status.textContent = `已全部显示 · 共 ${totalCardCount} 张卡片`;
+        status.className = 'text-xs text-stone-400 dark:text-stone-500';
+        if (manualBtn) manualBtn.classList.add('hidden');
+    } else {
+        status.textContent = `正在加载… 已显示 ${visibleCount} / ${totalCardCount} 张`;
+        status.className = 'text-xs text-stone-400 dark:text-stone-500';
+        // 手动按钮仅作兜底：IntersectionObserver 不可用等自动加载失效的环境
+        if (manualBtn) manualBtn.classList.toggle('hidden', 'IntersectionObserver' in window);
+    }
+}
+
+// ==========================================
+// 📐 fit-to-card：卡片内容自适应缩放（从机制上消灭卡片滚动条）
+// 原理：卡片盒子与网格轨道尺寸永远不变，只调节卡内 --fit-scale 字号系数；
+// 逐卡测量正反两面 .card-content-scroll 是否溢出，溢出则每次 -0.05 直到刚好放下。
+// 性能设计：① 固定盒子 = 无行对齐/无级联重排（与"改高度拉齐行"的卡顿方案本质不同）
+// ② IntersectionObserver 只在卡片进入视口 ±200px 时处理，屏外卡片零成本
+// ③ 滚动/缩放触发均为批处理，单次成本与卡片总数无关。
+// ==========================================
+const FIT_MIN_SCALE = 0.55;
+const FIT_STEP = 0.05;
+const FIT_VIEW_MARGIN = 200;
+let fitObserver = null;
+let fitRefitTimer = null;
+
+function fitSingleCard(card) {
+    try {
+        card.style.setProperty('--fit-scale', '1');
+        const scrollAreas = card.querySelectorAll('.card-content-scroll');
+        if (scrollAreas.length === 0) return;
+        let fit = 1;
+        while (fit > FIT_MIN_SCALE) {
+            let overflow = false;
+            for (const area of scrollAreas) {
+                if (area.scrollHeight > area.clientHeight + 1 || area.scrollWidth > area.clientWidth + 1) {
+                    overflow = true;
+                    break;
+                }
+            }
+            if (!overflow) break;
+            fit = Math.max(FIT_MIN_SCALE, +(fit - FIT_STEP).toFixed(2));
+            card.style.setProperty('--fit-scale', String(fit));
+        }
+    } catch (err) {
+        // 测量环境异常（极端缩放/隐藏标签页）时保持 1.0，绝不让适配逻辑破坏渲染
+    }
+}
+
+function getFitObserver() {
+    if (fitObserver) return fitObserver;
+    fitObserver = new IntersectionObserver((entries) => {
+        const entering = entries.filter(e => e.isIntersecting).map(e => e.target);
+        if (entering.length) entering.forEach(fitSingleCard);
+    }, { rootMargin: FIT_VIEW_MARGIN + 'px 0px' });
+    return fitObserver;
+}
+
+// 渲染/追加新卡片后调用：为所有未观察的卡片登记懒适配（进视口才处理，每张卡只测一次状态）
+function observeCardsForFit(container) {
+    const scope = container || document.getElementById('cards-grid');
+    if (!scope || layoutMode !== 'grid') return;
+    const observer = getFitObserver();
+    scope.querySelectorAll('.perspective').forEach(card => {
+        if (!card.dataset.fitBound) {
+            card.dataset.fitBound = '1';
+            observer.observe(card);
+        }
+    });
+}
+
+// 对当前视口 ±200px 内的卡片立即重适配（滑块变化、字体加载完成后调用）
+function fitCardsInViewport() {
+    const grid = document.getElementById('cards-grid');
+    if (!grid || layoutMode !== 'grid') return;
+    const vh = window.innerHeight;
+    const pending = [];
+    grid.querySelectorAll('.perspective').forEach(card => {
+        const rect = card.getBoundingClientRect();
+        if (rect.bottom > -FIT_VIEW_MARGIN && rect.top < vh + FIT_VIEW_MARGIN) pending.push(card);
+    });
+    pending.forEach(fitSingleCard);
+}
+
+// 防抖批处理：拖动滑块时合并高频触发
+function scheduleRefit() {
+    if (fitRefitTimer) clearTimeout(fitRefitTimer);
+    fitRefitTimer = setTimeout(fitCardsInViewport, 120);
 }
 
 window.loadMoreCards = function() {
-    // 增量追加：只渲染新增的一批，已渲卡片（含翻面状态）原样保留
     const grid = document.getElementById('cards-grid');
     const { filteredList, isGlobalScope } = getDisplayedCards();
     const prevLimit = visibleCardLimit;
@@ -930,24 +1232,25 @@ window.loadMoreCards = function() {
     const newCards = filteredList.slice(prevLimit, visibleCardLimit);
     if (newCards.length > 0) {
         grid.insertAdjacentHTML('beforeend', newCards.map(item => buildCardHtml(item, isGlobalScope)).join(''));
+        observeCardsForFit();
     }
     updateLoadMoreControl(filteredList.length);
     updateHeaderCount();
 }
 
-// Fixed card heights intentionally avoid runtime content measurement.
-// 12. 点击翻牌
 window.flipCard = function(element) {
     const inner = element.querySelector('.card-inner');
     inner.classList.toggle('is-flipped');
 }
 
-// 13. 编辑卡片功能区
+// ==========================================
+// ✏️ 重构逻辑：编辑卡片区 (合并了 Move)
+// ==========================================
 let currentEditTags = [];
 
 window.openEditCardModal = function(event, cardId, notebookName = activeNotebook) {
-    event.stopPropagation(); // 防止翻牌和折叠
-    
+    event.stopPropagation();
+
     const currentList = notebooks[notebookName] || [];
     const card = currentList.find(c => c.id === cardId);
     if (!card) return;
@@ -963,12 +1266,11 @@ window.openEditCardModal = function(event, cardId, notebookName = activeNotebook
     renderEditTags();
     document.getElementById('edit-tag-input').value = '';
 
+    // 修改下拉框逻辑：展示所有本子，默认选中当前
     const targetSelect = document.getElementById('edit-move-target');
-    const moveButton = document.getElementById('move-card-btn');
-    const targets = Object.keys(notebooks).filter(name => name !== notebookName);
+    const targets = Object.keys(notebooks);
     targetSelect.innerHTML = targets.map(name => `<option value="${name}">${name}</option>`).join('');
-    targetSelect.disabled = targets.length === 0;
-    moveButton.disabled = targets.length === 0;
+    targetSelect.value = notebookName;
 
     const modal = document.getElementById('edit-card-modal');
     modal.classList.remove('hidden');
@@ -981,8 +1283,9 @@ window.closeEditCardModal = function() {
 
 function renderEditTags() {
     const container = document.getElementById('edit-tags-container');
+    // 已选中标签统一颜色，与主界面对齐
     container.innerHTML = currentEditTags.map((tag, index) => `
-        <span class="inline-flex items-center gap-1 px-2 py-1 bg-emerald-100 dark:bg-teal-900/40 text-emerald-800 dark:text-teal-300 rounded text-xs font-medium border border-emerald-200/60 dark:border-teal-700/50">
+        <span class="inline-flex items-center gap-1 px-2 py-1 bg-emerald-800/[0.12] dark:bg-teal-300/[0.12] text-emerald-800 dark:text-teal-300 rounded text-xs font-medium">
             ${tag}
             <button type="button" onclick="removeEditTag(${index})" class="hover:text-emerald-950 dark:hover:text-teal-100 focus:outline-none ml-0.5">&times;</button>
         </span>
@@ -990,8 +1293,6 @@ function renderEditTags() {
     renderEditTagSuggestions();
 }
 
-// 渲染历史标签建议：全局收集所有单词本中已使用过的标签（排除当前卡片已有的），点击即添加
-// 用 createElement + addEventListener 而非内联 onclick，标签含引号也不会出问题
 function renderEditTagSuggestions() {
     const box = document.getElementById('edit-tag-suggestions');
     if (!box) return;
@@ -1010,19 +1311,20 @@ function renderEditTagSuggestions() {
     }
     box.classList.remove('hidden');
     const label = document.createElement('span');
-    label.className = 'text-[10px] text-stone-400 dark:text-stone-500 self-center shrink-0';
+    label.className = 'text-[11px] text-stone-400 dark:text-stone-500 self-center shrink-0 pr-1';
     label.textContent = '历史标签：';
     box.appendChild(label);
+
     [...allTags].sort((a, b) => a.localeCompare(b, 'zh-CN')).forEach(tag => {
         const chip = document.createElement('button');
         chip.type = 'button';
-        // 虚线描边 = 可点击添加；与已选中标签的实心蓝底形成形态区分，不会混淆
-        chip.className = 'px-2 py-0.5 rounded-full text-[11px] font-medium bg-transparent text-emerald-900 dark:text-teal-300 border border-dashed border-emerald-600 dark:border-teal-500 hover:bg-emerald-100 dark:hover:bg-teal-900/30 hover:border-solid transition-colors';
-        chip.textContent = '＋ ' + tag;
+        // 【重构】历史标签彻底降噪，去掉虚线框、绿字、+号，变成安静的灰色小胶囊
+        chip.className = 'px-2.5 py-1 rounded-md text-[11px] font-medium bg-stone-100 dark:bg-stone-800/80 text-stone-500 dark:text-stone-400 hover:bg-stone-200 dark:hover:bg-stone-700 transition-colors border border-transparent';
+        chip.textContent = tag;
         chip.addEventListener('click', () => {
             if (!currentEditTags.includes(tag)) {
                 currentEditTags.push(tag);
-                renderEditTags(); // 会连带刷新建议列表（已添加的自动消失）
+                renderEditTags();
             }
         });
         box.appendChild(chip);
@@ -1034,11 +1336,10 @@ window.removeEditTag = function(index) {
     renderEditTags();
 }
 
-// 监听回车或逗号添加 Tag
 document.getElementById('edit-tag-input').addEventListener('keydown', function(e) {
     if (e.key === 'Enter' || e.key === ',') {
-        e.preventDefault(); // 阻止表单默认提交
-        const val = this.value.trim().replace(/^,+|,+$/g, ''); // 剔除多余逗号
+        e.preventDefault();
+        const val = this.value.trim().replace(/^,+|,+$/g, '');
         if (val && !currentEditTags.includes(val)) {
             currentEditTags.push(val);
             renderEditTags();
@@ -1047,64 +1348,52 @@ document.getElementById('edit-tag-input').addEventListener('keydown', function(e
     }
 });
 
-window.moveEditedCard = function() {
-    const cardId = document.getElementById('edit-card-id').value;
-    const sourceNotebook = document.getElementById('edit-card-notebook').value || activeNotebook;
-    const targetNotebook = document.getElementById('edit-move-target').value;
-    const sourceList = notebooks[sourceNotebook] || [];
-    const cardIndex = sourceList.findIndex(card => card.id === cardId);
-    if (cardIndex < 0 || !targetNotebook || !notebooks[targetNotebook]) return;
-
-    const card = sourceList[cardIndex];
-    const updatedWord = document.getElementById('edit-word').value.trim();
-    if (hasGlobalDuplicate(updatedWord, card.id)) {
-        showToast('全局单词库中已存在同一个单词，无法移动。');
-        return;
-    }
-
-    card.word = updatedWord;
-    card.kana = document.getElementById('edit-kana').value.trim();
-    card.meaning = document.getElementById('edit-meaning').value.trim();
-    card.example = document.getElementById('edit-example').value.trim();
-    card.tags = [...currentEditTags]; // 移动时同样保留弹窗中编辑的标签
-    sourceList.splice(cardIndex, 1);
-    notebooks[targetNotebook].unshift(card);
-    saveData();
-    renderNotebookTabs();
-    renderCards();
-    closeEditCardModal();
-    showToast(`已移动到【${targetNotebook}】单词本。`);
-}
-
-// 保存对卡片内容的修改
+// 统一提交：内容保存与移动合并一处
 document.getElementById('edit-vocab-form').addEventListener('submit', function(e) {
     e.preventDefault();
 
     const cardId = document.getElementById('edit-card-id').value;
     const editNotebook = document.getElementById('edit-card-notebook').value || activeNotebook;
-    const currentList = notebooks[editNotebook] || [];
-    const card = currentList.find(c => c.id === cardId);
+    const targetNotebook = document.getElementById('edit-move-target').value;
 
-    if (card) {
+    const currentList = notebooks[editNotebook] || [];
+    const cardIndex = currentList.findIndex(c => c.id === cardId);
+
+    if (cardIndex > -1) {
+        const card = currentList[cardIndex];
         const updatedWord = document.getElementById('edit-word').value.trim();
+
         if (hasGlobalDuplicate(updatedWord, card.id)) {
             showToast('全局单词库中已存在同一个单词，无法保存。');
             return;
         }
+
         card.word = updatedWord;
         card.kana = document.getElementById('edit-kana').value.trim();
         card.meaning = document.getElementById('edit-meaning').value.trim();
         card.example = document.getElementById('edit-example').value.trim();
-        card.tags = [...currentEditTags]; // 储存变更后的标签
+        card.tags = [...currentEditTags];
+
+        // 核心：如果有跨本子移动的动作
+        if (targetNotebook && targetNotebook !== editNotebook) {
+            currentList.splice(cardIndex, 1);
+            if (!notebooks[targetNotebook]) notebooks[targetNotebook] = [];
+            notebooks[targetNotebook].unshift(card);
+        }
 
         saveData();
+        renderNotebookTabs();
         renderCards();
         closeEditCardModal();
-        showToast("卡片内容及标签保存成功！");
+
+        if (targetNotebook && targetNotebook !== editNotebook) {
+            showToast(`卡片已保存，并移动到【${targetNotebook}】单词本。`);
+        } else {
+            showToast("卡片内容及标签保存成功！");
+        }
     }
 });
 
-// 彻底从系统中删除本卡片
 window.submitDeleteCardPermanently = function() {
     const cardId = document.getElementById('edit-card-id').value;
     const editNotebook = document.getElementById('edit-card-notebook').value || activeNotebook;
@@ -1138,9 +1427,8 @@ window.submitDeleteCardPermanently = function() {
     }
 }
 
-// 14. 标记为“已掌握”或“撤回到复习”的逻辑
 window.toggleCardMastered = function(event, cardId, notebookName = activeNotebook) {
-    event.stopPropagation(); // 防止翻转与折叠
+    event.stopPropagation();
 
     const currentList = notebooks[notebookName] || [];
     const card = currentList.find(c => c.id === cardId);
@@ -1169,21 +1457,15 @@ window.toggleCardMastered = function(event, cardId, notebookName = activeNoteboo
     }
 }
 
-
-// ==========================================
-// ⚙️ 新增：AI 弹窗面板管理与持久化逻辑 (本地持久化，防明文外泄)
-// ==========================================
 window.openAiSettingsModal = function() {
     const modal = document.getElementById('ai-settings-modal');
-    
-    // 从内置沙盒加载已有配置并回显
     const provider = localStorage.getItem('ai_provider') || 'gemini';
     const geminiKey = localStorage.getItem('gemini_api_key') || '';
     const deepseekKey = localStorage.getItem('deepseek_api_key') || '';
-    
+
     document.getElementById('gemini-key-input').value = geminiKey;
     document.getElementById('deepseek-key-input').value = deepseekKey;
-    
+
     const toggles = document.getElementsByName('ai-provider-toggle');
     for (let t of toggles) {
         if (t.value === provider) {
@@ -1191,7 +1473,6 @@ window.openAiSettingsModal = function() {
             break;
         }
     }
-    
     modal.classList.remove('hidden');
 }
 
@@ -1202,7 +1483,7 @@ window.closeAiSettingsModal = function() {
 window.saveAiSettings = function() {
     const geminiKey = document.getElementById('gemini-key-input').value.trim();
     const deepseekKey = document.getElementById('deepseek-key-input').value.trim();
-    
+
     let selectedProvider = 'gemini';
     const toggles = document.getElementsByName('ai-provider-toggle');
     for (let t of toggles) {
@@ -1211,23 +1492,18 @@ window.saveAiSettings = function() {
             break;
         }
     }
-    
-    // 数据封包存入 localStorage
+
     localStorage.setItem('ai_provider', selectedProvider);
     localStorage.setItem('gemini_api_key', geminiKey);
     localStorage.setItem('deepseek_api_key', deepseekKey);
-    
+
     closeAiSettingsModal();
     showToast(`⚙️ AI服务商配置成功！当前激活：${selectedProvider === 'gemini' ? 'Google Gemini' : 'DeepSeek API'}`);
 }
 
-// ==========================================
-// 📥 新增：AI 智能批量导入功能 (严格格式刷模式 + OCR多模态识别)
-// ==========================================
 let currentBatchImageBase64 = null;
 let currentBatchImageMimeType = null;
 
-// 处理用户选择的图片并转换为 Base64
 window.handleBatchImageUpload = function(event) {
     const file = event.target.files[0];
     if (!file) return;
@@ -1247,7 +1523,6 @@ window.handleBatchImageUpload = function(event) {
     reader.readAsDataURL(file);
 }
 
-// 移除已选择的图片
 window.clearBatchImage = function() {
     currentBatchImageBase64 = null;
     currentBatchImageMimeType = null;
@@ -1259,7 +1534,6 @@ window.clearBatchImage = function() {
 window.openBatchImportModal = function() {
     document.getElementById('batch-import-textarea').value = "";
     clearBatchImage();
-    // 重置 JSON 导入栏
     document.getElementById('json-import-textarea').value = "";
     document.getElementById('json-file-upload').value = "";
     document.getElementById('json-import-preview').classList.add('hidden');
@@ -1267,7 +1541,7 @@ window.openBatchImportModal = function() {
     document.getElementById('json-new-notebook-name').value = "";
     document.querySelector('input[name="json-target"][value="current"]').checked = true;
     document.getElementById('json-target-current-name').innerText = activeNotebook;
-    switchBatchTab('ai'); // 默认停留在 AI 栏
+    switchBatchTab('ai');
     document.getElementById('batch-import-modal').classList.remove('hidden');
 }
 
@@ -1275,13 +1549,12 @@ window.closeBatchImportModal = function() {
     document.getElementById('batch-import-modal').classList.add('hidden');
 }
 
-// 栏位切换：AI 智能导入 / JSON 导入
 window.switchBatchTab = function(tab) {
     const aiPane = document.getElementById('batch-pane-ai');
     const jsonPane = document.getElementById('batch-pane-json');
     const aiTab = document.getElementById('batch-tab-ai');
     const jsonTab = document.getElementById('batch-tab-json');
-    const activeCls = ['bg-white', 'dark:bg-stone-700', 'text-purple-800', 'dark:text-purple-300', 'shadow-sm'];
+    const activeCls = ['bg-white', 'dark:bg-stone-700', 'text-emerald-800', 'dark:text-teal-400', 'shadow-sm'];
     const inactiveCls = ['text-stone-500', 'dark:text-stone-400'];
 
     const showAi = (tab === 'ai');
@@ -1300,10 +1573,8 @@ window.switchBatchTab = function(tab) {
     }
 }
 
-// 解析 JSON 内容：兼容三种格式——vocab-pack 单词包 / 云同步备份 {notebooks:{}} / 卡片数组
-// 返回 { cards: [{word,kana,meaning,example,tags}], formatLabel, suggestedName }，失败时抛出异常
 function parseVocabPack(text) {
-    const data = JSON.parse(text); // 语法错误直接抛给调用方
+    const data = JSON.parse(text);
     let rawCards = [];
     let formatLabel = "";
     let suggestedName = "";
@@ -1324,7 +1595,6 @@ function parseVocabPack(text) {
         throw new Error("无法识别的 JSON 结构：既不是单词包，也不是云同步备份文件。");
     }
 
-    // 统一清洗与校验：word 必填，其余字段兜底为空，tags 仅保留非空字符串
     const cards = [];
     rawCards.forEach(c => {
         if (!c || typeof c.word !== 'string' || !c.word.trim()) return;
@@ -1342,7 +1612,6 @@ function parseVocabPack(text) {
     return { cards, formatLabel, suggestedName };
 }
 
-// 选择 JSON 文件后：读入文本框并触发解析预览
 window.handleJsonFileUpload = function(event) {
     const file = event.target.files[0];
     if (!file) return;
@@ -1357,7 +1626,6 @@ window.handleJsonFileUpload = function(event) {
     reader.readAsText(file, 'utf-8');
 }
 
-// 实时解析预览：成功则显示摘要并启用导入按钮，失败则静默隐藏
 window.previewJsonImport = function() {
     const preview = document.getElementById('json-import-preview');
     const submitBtn = document.getElementById('json-import-submit-btn');
@@ -1373,7 +1641,6 @@ window.previewJsonImport = function() {
         preview.innerHTML = `✅ 识别为 <strong>${parsed.formatLabel}</strong>，共 <strong>${parsed.cards.length}</strong> 个单词：${sample}${parsed.cards.length > 3 ? ' …' : ''}`;
         preview.classList.remove('hidden');
         submitBtn.disabled = false;
-        // 词包带有范围名时，预填新单词本名称（不覆盖用户已输入的内容）
         const nameInput = document.getElementById('json-new-notebook-name');
         if (parsed.suggestedName && !nameInput.value.trim()) {
             nameInput.value = parsed.suggestedName;
@@ -1384,7 +1651,6 @@ window.previewJsonImport = function() {
     }
 }
 
-// 执行 JSON 导入：按去向（当前单词本 / 新建单词本）合并，按词形去重，id 重新生成
 window.submitJsonImport = function() {
     const text = document.getElementById('json-import-textarea').value.trim();
     if (!text) {
@@ -1407,7 +1673,6 @@ window.submitJsonImport = function() {
             showToast("请填写新单词本的名称！");
             return;
         }
-        // 撞名自动加后缀，绝不覆盖已有单词本
         if (notebooks[targetName]) {
             let i = 2;
             while (notebooks[`${targetName} (${i})`]) i++;
@@ -1446,7 +1711,7 @@ window.submitJsonImport = function() {
     saveData();
     renderNotebookTabs();
     if (targetMode === 'new') {
-        switchNotebook(targetName); // 自动切到新本子，立刻看到成果
+        switchNotebook(targetName);
     } else {
         renderCards();
         updateHeaderCount();
@@ -1469,8 +1734,7 @@ window.submitBatchImport = async function() {
     }
 
     const activeProvider = localStorage.getItem('ai_provider') || 'gemini';
-    
-    // 安全阻断：DeepSeek API 目前原生不支持直接通过同一套接口无缝传入图片，强制指引使用具备多模态的 Gemini
+
     if (currentBatchImageBase64 && activeProvider !== 'gemini') {
         showToast("⚠️ 笔记的手写照片识别目前仅支持 Google Gemini！请先在右上角【⚙️ AI设置】中切换服务商。");
         return;
@@ -1495,7 +1759,6 @@ window.submitBatchImport = async function() {
     btnSpinner.classList.remove('hidden');
     btnText.innerText = "视觉提取处理中...";
 
-    // 严格设定 System Prompt，强迫 AI 仅仅扮演“格式化工具”的角色，绝不自动补充假名
     const systemPrompt = `你是一个非常严谨的文本结构化工具。
 任务：从用户给定的杂乱笔记文本或【上传的手写/印刷图片】中，提取出所有日语单词条目，并转换为 JSON 格式。
 【绝对规则，不可违背】
@@ -1523,12 +1786,10 @@ window.submitBatchImport = async function() {
         if (activeProvider === 'gemini') {
             const model = "gemini-2.5-flash";
             url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${currentToken}`;
-            
-            // 构建支持多模态（图+文混合）的载荷 Parts
+
             const promptText = systemPrompt + "\n\n要处理的内容说明：\n" + (textVal || "请精准识别随附图片中的日语内容并提取。");
             const payloadParts = [{ text: promptText }];
-            
-            // 如果存在图片，把图片 Base64 数据原封不动塞进 InlineData 送给模型
+
             if (currentBatchImageBase64) {
                 payloadParts.push({
                     inlineData: {
@@ -1608,19 +1869,17 @@ window.submitBatchImport = async function() {
             throw new Error("未能从图片或文本中提取到任何有效单词。");
         }
 
-        // 批量执行查重与导入
         if (!notebooks[activeNotebook]) notebooks[activeNotebook] = [];
         let successCount = 0;
         let dupCount = 0;
 
         const getCleanWord = (w) => w.replace(/([^\s\[\]]+)\[([^\]]+)\]/g, '$1');
 
-        // 翻转数组以保证导入顺序符合用户从上到下的阅读习惯
         itemsList.reverse().forEach(item => {
             if(!item.word) return;
             const cleanInputWord = getCleanWord(item.word.trim());
             const isDuplicate = notebooks[activeNotebook].some(card => getCleanWord(card.word) === cleanInputWord);
-            
+
             if (isDuplicate) {
                 dupCount++;
             } else {
@@ -1657,10 +1916,6 @@ window.submitBatchImport = async function() {
     }
 }
 
-
-// ==========================================
-// ✨ 改动：全新重构的智能多通道假名自适应匹配模块 (兼容 Gemini 与 DeepSeek 两种网络接口)
-// ==========================================
 async function fetchWithBackoff(url, options, retries = 5, delay = 1000) {
     for (let i = 0; i < retries; i++) {
         try {
@@ -1680,17 +1935,16 @@ async function fetchWithBackoff(url, options, retries = 5, delay = 1000) {
 window.autoLookupWord = async function(isEdit = false) {
     const wordInputId = isEdit ? 'edit-word' : 'input-word';
     const wordVal = document.getElementById(wordInputId).value.trim();
-    
+
     if (!wordVal) {
         showToast("请先输入需要匹配的日语单词。");
         return;
     }
 
-    // 1. 读取本地非明文密钥配置
     const activeProvider = localStorage.getItem('ai_provider') || 'gemini';
     const geminiKey = localStorage.getItem('gemini_api_key') || '';
     const deepseekKey = localStorage.getItem('deepseek_api_key') || '';
-    
+
     const currentToken = activeProvider === 'gemini' ? geminiKey : deepseekKey;
 
     if (!currentToken) {
@@ -1711,7 +1965,6 @@ window.autoLookupWord = async function(isEdit = false) {
     btnSpinner.classList.remove('hidden');
     btnText.innerText = "匹配中...";
 
-    // 严苛的核心 System Prompt
     const systemPrompt = `你是一个非常专业且极致克制的日语研究助手。
 任务：接收用户输入的日语词汇，仅仅生成读音平假名，以及带汉字振假名括号的对齐文本。
 注意：不要尝试生成例句、不要生成中文解释。必须返回一个纯净的 JSON 字符串（不要有任何 Markdown \`\`\`json 包裹）。
@@ -1727,20 +1980,18 @@ window.autoLookupWord = async function(isEdit = false) {
         let fetchOptions = {};
 
         if (activeProvider === 'gemini') {
-            // 修复版：采用最基础、兼容性最强的 Gemini 请求格式
             const model = "gemini-2.5-flash";
             url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${currentToken}`;
             fetchOptions = {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    contents: [{ 
-                        parts: [{ text: systemPrompt + "\n\n目标词汇：" + wordVal }] 
+                    contents: [{
+                        parts: [{ text: systemPrompt + "\n\n目标词汇：" + wordVal }]
                     }]
                 })
             };
         } else {
-            // 付费级通用 DeepSeek 模型通用请求管道
             url = "https://api.deepseek.com/chat/completions";
             fetchOptions = {
                 method: 'POST',
@@ -1765,7 +2016,6 @@ window.autoLookupWord = async function(isEdit = false) {
 
         if (activeProvider === 'gemini') {
             textJson = responseData.candidates?.[0]?.content?.parts?.[0]?.text;
-            // 由于降级为普通文本请求，Gemini 有时会顽固地加上 Markdown 代码块包裹，需要手动剥离
             if (textJson) {
                  textJson = textJson.replace(/```json/g, '').replace(/```/g, '').trim();
             }
@@ -1777,7 +2027,6 @@ window.autoLookupWord = async function(isEdit = false) {
 
         const data = JSON.parse(textJson);
 
-        // 填入解耦后的文本框
         if (isEdit) {
             document.getElementById('edit-word').value = data.word_with_bracket;
             document.getElementById('edit-kana').value = data.kana;
@@ -1797,22 +2046,18 @@ window.autoLookupWord = async function(isEdit = false) {
     }
 }
 
-
-// ==========================================
-// 💾 IndexedDB 离线词典核心存取逻辑
-// ==========================================
 function initIndexedDB() {
     const request = indexedDB.open("OfflineDictDB", 1);
-    
+
     request.onerror = function() {
         document.getElementById('dict-db-status').innerHTML = "⚠️ 本地数据库加载失败";
     };
-    
+
     request.onsuccess = function(e) {
         db = e.target.result;
         checkDictionaryEmpty();
     };
-    
+
     request.onupgradeneeded = function(e) {
         const activeDb = e.target.result;
         const store = activeDb.createObjectStore("dictionary", { keyPath: "word" });
@@ -1825,7 +2070,7 @@ function checkDictionaryEmpty() {
     const tx = db.transaction("dictionary", "readonly");
     const store = tx.objectStore("dictionary");
     const countRequest = store.count();
-    
+
     countRequest.onsuccess = function() {
         if (countRequest.result === 0) {
             importDictionaryData(preloadedDictionary, true);
@@ -1843,7 +2088,7 @@ function updateDictStatusLabel(count) {
 function importDictionaryData(dataArray, silent = false) {
     const tx = db.transaction("dictionary", "readwrite");
     const store = tx.objectStore("dictionary");
-    
+
     let successCount = 0;
     dataArray.forEach(item => {
         if (item.word && (item.kana || item.meaning)) {
@@ -1855,7 +2100,7 @@ function importDictionaryData(dataArray, silent = false) {
             successCount++;
         }
     });
-    
+
     tx.oncomplete = function() {
         const countTx = db.transaction("dictionary", "readonly");
         const countStore = countTx.objectStore("dictionary");
@@ -1869,7 +2114,7 @@ function importDictionaryData(dataArray, silent = false) {
 window.searchDictionary = function() {
     const searchVal = document.getElementById('dict-search-input').value.trim().toLowerCase();
     const resultsBox = document.getElementById('dict-results');
-    
+
     if (!searchVal) {
         resultsBox.innerHTML = '';
         resultsBox.classList.add('hidden');
@@ -1879,9 +2124,9 @@ window.searchDictionary = function() {
     const tx = db.transaction("dictionary", "readonly");
     const store = tx.objectStore("dictionary");
     const cursorRequest = store.openCursor();
-    
+
     let matched = [];
-    
+
     cursorRequest.onsuccess = function(e) {
         const cursor = e.target.result;
         if (cursor) {
@@ -1889,11 +2134,11 @@ window.searchDictionary = function() {
             const w = item.word.toLowerCase();
             const k = item.kana.toLowerCase();
             const m = item.meaning.toLowerCase();
-            
+
             if (w.includes(searchVal) || k.includes(searchVal) || m.includes(searchVal)) {
                 matched.push(item);
             }
-            
+
             if (matched.length < 20) {
                 cursor.continue();
             } else {
@@ -1908,7 +2153,7 @@ window.searchDictionary = function() {
 function renderDictResults(results) {
     const resultsBox = document.getElementById('dict-results');
     resultsBox.classList.remove('hidden');
-    
+
     if (results.length === 0) {
         resultsBox.innerHTML = `
             <div class="p-3 text-center text-xs text-stone-400 bg-stone-50 dark:bg-stone-900 rounded-xl border border-dashed border-stone-200 dark:border-stone-700 transition-colors">
@@ -1935,7 +2180,7 @@ window.fillFromDictionary = function(word, kana, meaning) {
     document.getElementById('input-word').value = word;
     document.getElementById('input-kana').value = kana;
     document.getElementById('input-meaning').value = meaning;
-    
+
     document.getElementById('input-word').focus();
     showToast("已为你将词典结果一键填入上方添加表单！");
 }
@@ -1975,10 +2220,6 @@ window.toggleDictionaryDrawer = function() {
     }
 }
 
-
-// ==========================================
-// ☁️ 核心：GitHub Gist 轻量云同步功能
-// ==========================================
 window.openCloudSyncModal = function() {
     const drawer = document.getElementById('cloud-drawer');
     if (drawer.classList.contains('hidden')) {
@@ -2058,7 +2299,7 @@ window.syncToCloud = async function() {
         }
 
         const data = await response.json();
-        
+
         if (!gistId) {
             document.getElementById('gist-id').value = data.id;
             gistId = data.id;
@@ -2108,14 +2349,14 @@ window.syncFromCloud = async function() {
         }
 
         const data = await response.json();
-        
+
         const fileObj = data.files["japanese_vocab_backup.json"];
         if (!fileObj || !fileObj.content) {
             throw new Error("在您的 Gist 房间里找不到备份数据文件");
         }
 
         const parsedData = JSON.parse(fileObj.content);
-        
+
         if (parsedData.notebooks) {
             notebooks = parsedData.notebooks;
             if (!notebooks[activeNotebook]) {
@@ -2138,38 +2379,33 @@ window.syncFromCloud = async function() {
         updateSyncStatus(`❌ 拉取失败: ${err.message}`, true);
     } finally {
         btn.disabled = false;
-        btn.innerHTML = `<svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4-4m0 0l-4-4m4 4V4"></path></svg><span>⬇️ 从云端拉取并恢复本地</span>`;
+        btn.innerHTML = `<svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg><span>⬇️ 从云端拉取并恢复本地</span>`;
     }
 }
 
-
-// ==========================================
-// 🚨 查重与提交：添加生词主表单提交
-// ==========================================
 document.getElementById('vocab-form').addEventListener('submit', function(e) {
-    e.preventDefault(); // 阻止浏览器默认的刷新动作
-    
+    e.preventDefault();
+
     const wordInput = document.getElementById('input-word');
     const kanaInput = document.getElementById('input-kana');
     const meaningInput = document.getElementById('input-meaning');
     const exampleInput = document.getElementById('input-example');
-    
+
     const wordVal = wordInput.value.trim();
 
     if (!notebooks[activeNotebook]) {
         notebooks[activeNotebook] = [];
     }
 
-    // --- 智能防重复检查逻辑 ---
     const getCleanWord = (w) => w.replace(/([^\s\[\]]+)\[([^\]]+)\]/g, '$1');
     const cleanInputWord = getCleanWord(wordVal);
-    
+
     const isDuplicate = notebooks[activeNotebook].some(card => getCleanWord(card.word) === cleanInputWord);
-    
+
     if (isDuplicate) {
         showToast(`⚠️ “${cleanInputWord}” 已存在于本册中，请勿重复添加！`);
-        wordInput.select(); 
-        return; 
+        wordInput.select();
+        return;
     }
 
     const newVocab = {
@@ -2179,12 +2415,12 @@ document.getElementById('vocab-form').addEventListener('submit', function(e) {
         meaning: meaningInput.value.trim(),
         example: exampleInput.value.trim(),
         mastered: false,
-        tags: [] // 初始新卡片无标签，需在编辑面板添加
+        tags: []
     };
 
     notebooks[activeNotebook].unshift(newVocab);
     saveData();
-    
+
     if (cardFilter !== "review") {
         setCardFilter("review");
     } else {
@@ -2192,27 +2428,22 @@ document.getElementById('vocab-form').addEventListener('submit', function(e) {
     }
     renderNotebookTabs();
 
-    e.target.reset(); 
+    e.target.reset();
     wordInput.focus();
 
     showToast("成功添加词卡到当前单词本！");
 });
 
-// Delay repeated redraws while typing; clearing the search stays immediate.
-// 搜索是一个"模式"：进入时过滤器归零一次（掌握状态跳「全部」、标签清空）；
-// 搜索中调整过滤器完全自由；清空搜索框时退出模式，恢复默认视图（复习中）。
 document.getElementById('search-input').addEventListener('input', function(event) {
     window.clearTimeout(searchDebounceTimer);
     const isSearching = event.target.value.trim() !== '';
     const wasSearching = this.dataset.wasSearching === '1';
 
     if (isSearching && !wasSearching) {
-        // 空 → 非空：进入搜索模式，过滤器归零一次（之后不再插手）
         activeTagFilters = [];
         renderGlobalTags();
         setCardFilter("all");
     } else if (!isSearching && wasSearching) {
-        // 非空 → 空：退出搜索模式，回到默认浏览视图
         activeTagFilters = [];
         renderGlobalTags();
         setCardFilter("review");
@@ -2226,7 +2457,6 @@ document.getElementById('search-input').addEventListener('input', function(event
     searchDebounceTimer = window.setTimeout(renderCards, 120);
 });
 
-// 一键翻面
 let allFlipped = false;
 document.getElementById('toggle-all-btn').addEventListener('click', () => {
     if (layoutMode !== "grid") {
@@ -2242,25 +2472,21 @@ document.getElementById('toggle-all-btn').addEventListener('click', () => {
             card.classList.remove('is-flipped');
         }
     });
-    
+
     const btnSpan = document.querySelector('#toggle-all-btn span');
     btnSpan.innerText = allFlipped ? "还原正面" : "全卡翻面";
 });
 
-// 一键随机打乱当前视图的卡片显示顺序（仅重洗内存乱序清单，不改 localStorage 写入顺序）
 window.shuffleCards = function() {
     const currentList = notebooks[activeNotebook] || [];
     if (currentList.length <= 1) {
         showToast("当前本里只有一个单词，不用打乱哦！");
         return;
     }
-    reshuffleDisplay(); // 全量重渲，所有卡片自然回到正面
+    reshuffleDisplay();
     showToast("顺序已打乱！快开始新一轮复习吧 🎲");
 }
 
-
-// 17. 💾 一键生成并导出格式精美、兼容极佳的 A4 结构 Markdown 练习表
-// 🌟 “所见即所导”：导出当前界面实际展示的单词（跟随搜索、复习/已掌握、标签等全部筛选条件）
 window.exportToMD = function() {
     const { filteredList, isGlobalSearch, isGlobalScope } = getDisplayedCards();
     if (filteredList.length === 0) {
@@ -2270,7 +2496,6 @@ window.exportToMD = function() {
 
     const dateStr = new Date().toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' });
 
-    // 组装导出范围名称（用于标题、文件名）
     let scopeName = activeNotebook;
     if (isGlobalScope) {
         const parts = [];
@@ -2278,14 +2503,13 @@ window.exportToMD = function() {
         if (isGlobalSearch) parts.push("搜索结果");
         scopeName = parts.join("·");
     }
-    const safeScopeName = scopeName.replace(/[\\\/:*?"<>|]/g, '_'); // 清洗文件名非法字符
+    const safeScopeName = scopeName.replace(/[\\\/:*?"<>|]/g, '_');
 
-    // 🛡️ 表格单元格清洗：防止真实换行打断 Markdown 表格行、剔除控制字符与损坏的 Unicode 孤立代理项
     const sanitizeMdCell = (text) => String(text || '')
-        .replace(/\r\n|\r|\n/g, ' ')          // 换行会截断表格行，转为空格（表格内本就用 <br> 换行）
-        .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\uFFFE\uFFFF]/g, '') // 不可见控制字符
-        .replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/g, '') // 孤立的高位代理项（损坏字符，会变 �）
-        .replace(/(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, ''); // 孤立的低位代理项
+        .replace(/\r\n|\r|\n/g, ' ')
+        .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\uFFFE\uFFFF]/g, '')
+        .replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/g, '')
+        .replace(/(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, '');
 
     let mdContent = `# 📓 日语单词自测练习表 (${scopeName})\n\n`;
     mdContent += `- **导出范围**: ${scopeName}${isGlobalScope ? '（跨单词本）' : ''}\n`;
@@ -2299,22 +2523,18 @@ window.exportToMD = function() {
     filteredList.forEach(item => {
         let cleanWord = sanitizeMdCell(item.word).replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
-        // 使用标准 HTML Ruby 语法，去除加粗，确保多平台稳定渲染
         let formattedWord = cleanWord;
         const bracketRegex = rubyBracketRegex();
 
         if (bracketRegex.test(cleanWord)) {
-            bracketRegex.lastIndex = 0; // 重置正则检索位置
-            // 这里导出的文档通常不需要夜间模式类名，所以保持干净
+            bracketRegex.lastIndex = 0;
             formattedWord = cleanWord.replace(bracketRegex, '<ruby>$1<rt>$2</rt></ruby>');
         } else if (item.kana && item.kana.trim() !== "") {
-            // 若无括号但有独立假名，则将整个词包裹
             let cleanKana = sanitizeMdCell(item.kana).trim().replace(/</g, "&lt;").replace(/>/g, "&gt;");
             formattedWord = `<ruby>${cleanWord}<rt>${cleanKana}</rt></ruby>`;
         }
 
-        let wordCol = formattedWord; // 已去除加粗星号 **
-        // 全局范围导出时（跨单词本/标签/搜索），标注该词的来源单词本
+        let wordCol = formattedWord;
         if (isGlobalScope) {
             const cleanSource = sanitizeMdCell(item.sourceNotebook || '').replace(/</g, "&lt;").replace(/>/g, "&gt;");
             wordCol += `<br><span style="font-size: 0.75em; color: #a8a29e;">〔${cleanSource}〕</span>`;
@@ -2331,7 +2551,6 @@ window.exportToMD = function() {
     });
 
     try {
-        // 新增 '\uFEFF' (UTF-8 BOM) 头，彻底解决 Windows 系统本地打开 MD 文件乱码的问题
         const blob = new Blob(['\uFEFF' + mdContent], { type: 'text/markdown;charset=utf-8;' });
         const url = URL.createObjectURL(blob);
         const link = document.createElement("a");
@@ -2347,7 +2566,6 @@ window.exportToMD = function() {
     }
 }
 
-// 18.5 📂 导出练习表下拉菜单控制（合并 PDF / MD 两个入口）
 window.toggleExportMenu = function() {
     document.getElementById('export-menu').classList.toggle('hidden');
 }
@@ -2363,8 +2581,6 @@ window.chooseExport = function(format) {
     }
 }
 
-// 18.6 📦 导出 JSON 单词包（所见即所导，与 MD/PDF 共用 getDisplayedCards() 数据源）
-// 用途：分享给他人，通过「批量导入 → JSON 导入」离线导入；不含 id / mastered，导入时重新生成
 window.exportToJSON = function() {
     const { filteredList, isGlobalSearch, isGlobalScope } = getDisplayedCards();
     if (filteredList.length === 0) {
@@ -2372,7 +2588,6 @@ window.exportToJSON = function() {
         return;
     }
 
-    // 组装导出范围名称（与 MD 导出同规则）
     let scopeName = activeNotebook;
     if (isGlobalScope) {
         const parts = [];
@@ -2380,7 +2595,7 @@ window.exportToJSON = function() {
         if (isGlobalSearch) parts.push("搜索结果");
         scopeName = parts.join("·");
     }
-    const safeScopeName = scopeName.replace(/[\\\/:*?"<>|]/g, '_'); // 清洗文件名非法字符
+    const safeScopeName = scopeName.replace(/[\\\/:*?"<>|]/g, '_');
 
     const pack = {
         format: "vocab-pack",
@@ -2412,7 +2627,6 @@ window.exportToJSON = function() {
     }
 }
 
-// 点击菜单外部时自动收起下拉
 document.addEventListener('click', function(e) {
     const dropdown = document.getElementById('export-dropdown');
     if (dropdown && !dropdown.contains(e.target)) {
@@ -2420,8 +2634,6 @@ document.addEventListener('click', function(e) {
     }
 });
 
-// 19. 🖨️ 一键导出 PDF 练习表（生成打印版页面并调起浏览器打印，选择"另存为PDF"即可）
-// 🌟 同样遵循“所见即所导”：与 exportToMD 共用 getDisplayedCards() 数据源
 window.exportToPDF = function() {
     const { filteredList, isGlobalSearch, isGlobalScope } = getDisplayedCards();
     if (filteredList.length === 0) {
@@ -2429,7 +2641,6 @@ window.exportToPDF = function() {
         return;
     }
 
-    // 组装导出范围名称（与 MD 导出保持一致）
     let scopeName = activeNotebook;
     if (isGlobalScope) {
         const parts = [];
@@ -2439,14 +2650,12 @@ window.exportToPDF = function() {
     }
     const dateStr = new Date().toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' });
 
-    // HTML 转义 + 换行转 <br>（打印页面允许换行），剔除控制字符与损坏的 Unicode
     const escHtml = (text) => String(text || '')
         .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\uFFFE\uFFFF]/g, '')
         .replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/g, '')
         .replace(/(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, '')
         .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
-    // bracket 语法转 ruby 注音（与卡片渲染同规则）
     const toRuby = (word, kana) => {
         const safe = escHtml(word);
         const bracketRegex = rubyBracketRegex();
@@ -2460,7 +2669,6 @@ window.exportToPDF = function() {
         return safe;
     };
 
-    // 组装表格行
     const rowsHtml = filteredList.map(item => {
         let wordCell = toRuby(item.word, item.kana);
         if (isGlobalScope) {
@@ -2468,7 +2676,6 @@ window.exportToPDF = function() {
         }
         let meaningCell = escHtml(item.meaning);
         if (item.example) {
-            // 多条例句（以 / 、／ 或换行分隔）在练习表中逐行显示
             const exampleLines = String(item.example).split(/[/／\n]+/).map(s => s.trim()).filter(Boolean);
             exampleLines.forEach((line, idx) => {
                 meaningCell += `<br><span class="example-note font-japanese">${exampleLines.length > 1 ? `${toCircledNum(idx + 1)} ` : ''}${escHtml(line)}</span>`;
@@ -2490,7 +2697,6 @@ font-family: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "微软雅黑
 color: #292524; margin: 0; padding: 0;
 -webkit-print-color-adjust: exact; print-color-adjust: exact;
     }
-    /* 日文内容（与网页 .font-japanese 同规则：日文字体优先，回退中文黑体） */
     .font-japanese, rt, .word-col {
 font-family: "Noto Sans JP", "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Meiryo", "PingFang SC", "Microsoft YaHei", sans-serif;
     }
@@ -2506,9 +2712,7 @@ vertical-align: top;
 word-break: break-all;
 overflow-wrap: anywhere;
     }
-    /* 表头与间隔行底色：打印时强制保留（-webkit-print-color-adjust: exact） */
     th { background: #e7e5e4; font-size: 9.5pt; letter-spacing: 1pt; }
-    /* 隔行浅灰底色（偶数行留白），降低串行概率 */
     tbody tr:nth-child(even) { background: #f5f5f4; }
     td.word-col { width: 34%; }
     td.write-col { width: 24%; }
@@ -2541,7 +2745,6 @@ overflow-wrap: anywhere;
 </body>
 </html>`;
 
-    // 打开打印窗口并调起打印（处于用户点击事件内，一般不会被弹窗拦截）
     const printWindow = window.open('', '_blank');
     if (!printWindow) {
         showToast("❌ 弹出打印窗口被浏览器拦截，请允许本页面的弹出式窗口后重试。");
@@ -2550,7 +2753,6 @@ overflow-wrap: anywhere;
     printWindow.document.open();
     printWindow.document.write(printDoc);
     printWindow.document.close();
-    // 等待字体与表格排版稳定后再调起打印
     printWindow.onload = () => {
         setTimeout(() => { printWindow.focus(); printWindow.print(); }, 200);
     };
@@ -2561,7 +2763,6 @@ overflow-wrap: anywhere;
 window.onload = function() {
     loadData();
 }
-// Back to top button + floating shuffle button（共用 360px 显隐阈值）
 const backToTopBtn = document.getElementById('back-to-top-btn');
 const shuffleFab = document.getElementById('shuffle-fab');
 const updateBackToTopButton = () => {
@@ -2575,7 +2776,6 @@ backToTopBtn.addEventListener('click', () => {
 });
 updateBackToTopButton();
 
-// 浮动打乱按钮：重洗一轮（全量重渲使所有卡回正面）并平滑滚回顶部
 if (shuffleFab) {
     shuffleFab.addEventListener('click', () => {
         const { filteredList } = getDisplayedCards();
@@ -2589,8 +2789,6 @@ if (shuffleFab) {
     });
 }
 
-// 滚动接近底部时自动加载下一批（手动"加载更多"按钮保留作兜底）
-// 观察目标 load-more-container 在全部加载完时是 display:none，自然不会触发
 const loadMoreSentinel = document.getElementById('load-more-container');
 if ('IntersectionObserver' in window && loadMoreSentinel) {
     const loadMoreObserver = new IntersectionObserver((entries) => {
@@ -2599,10 +2797,10 @@ if ('IntersectionObserver' in window && loadMoreSentinel) {
         if (visibleCardLimit < filteredList.length) {
             loadMoreCards();
         }
-    }, { rootMargin: '240px' }); // 提前 240px 预加载，滚到底前下一批已就位
+    }, { rootMargin: '600px' });
     loadMoreObserver.observe(loadMoreSentinel);
 }
-// Add a one-click clear button to every editable text field.
+
 function setupInputClearButtons() {
     const fields = document.querySelectorAll('input:not([type="hidden"]):not([type="file"]):not([type="range"]):not([type="radio"]):not([type="checkbox"]):not([type="button"]):not([type="submit"]), textarea');
 
@@ -2649,14 +2847,12 @@ function setupInputClearButtons() {
                 field.dispatchEvent(new Event('input', { bubbles: true }));
                 field.dispatchEvent(new Event('change', { bubbles: true }));
             };
-            // Clearing a search can rebuild every card. Let the cleared input paint first.
             if (field.id === 'search-input') {
                 window.setTimeout(notifyFieldChange, 32);
             } else {
                 notifyFieldChange();
             }
         };
-        // Clear on press for a responsive mouse/touch interaction, without firing the search render twice.
         let clearedOnPointerDown = false;
         clearButton.addEventListener('pointerdown', (event) => {
             event.preventDefault();
@@ -2676,3 +2872,9 @@ function setupInputClearButtons() {
     });
 }
 setupInputClearButtons();
+
+// 网络字体（Noto Sans JP）加载完成后字宽会变，重测一次可见卡片，避免首测偏差
+if (document.fonts && document.fonts.ready) {
+    document.fonts.ready.then(() => scheduleRefit());
+}
+
