@@ -84,7 +84,7 @@
                                 placeholder="例：美しい 或 美[うつく]しい"
                                 class="font-japanese w-full pl-4 pr-20 py-3 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-700/20 dark:focus:ring-teal-700/30 focus:border-emerald-700 dark:focus:border-teal-700 transition duration-200 text-stone-800 dark:text-stone-200 placeholder-stone-400 dark:placeholder-stone-500">
                             <!-- 匹配假名按钮 -->
-                            <button type="button" id="ai-parse-btn" onclick="autoLookupWord(false)" class="absolute right-2.5 py-1 px-2 bg-emerald-800 dark:bg-teal-700 text-white rounded-lg text-[11px] font-semibold hover:bg-emerald-900 dark:hover:bg-teal-600 transition-all duration-200 flex items-center shadow-sm active:scale-95" title="一键自动匹配头上假名">
+                            <button type="button" id="ai-parse-btn" onclick="autoLookupWord(false)" class="absolute right-2.5 py-1 px-2 bg-emerald-800 dark:bg-teal-700 text-white rounded-lg text-[11px] font-semibold hover:bg-emerald-900 dark:hover:bg-teal-600 transition-all duration-200 flex items-center shadow-sm active:scale-95" title="一键自动匹配头上假名（快捷键 Ctrl+Enter）">
                                 <span id="ai-btn-spinner" class="hidden animate-spin mr-1">
                                     <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
                                 </span>
@@ -122,7 +122,7 @@
                 <!-- 提交按钮与快捷技巧提示 -->
                 <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between pt-2 gap-4">
                     <div class="text-xs text-stone-500 dark:text-stone-400 bg-stone-100/80 dark:bg-stone-700/30 rounded-lg p-3 border border-stone-200/50 dark:border-stone-600/50 leading-relaxed max-w-xl transition-colors">
-                        💡 <strong>极速查假名：</strong>在单词框输入中文或汉字词后点击 <strong class="text-emerald-800 dark:text-teal-500">“匹配假名”</strong>，AI 仅自动匹配读音并转为精准的括号汉字对齐！
+                        💡 <strong>极速查假名：</strong>在单词框输入中文或汉字词后按 <strong class="text-emerald-800 dark:text-teal-500">Ctrl+Enter</strong>（Mac 为 Cmd+Enter）或点击 <strong class="text-emerald-800 dark:text-teal-500">“匹配假名”</strong>，AI 仅自动匹配读音并转为精准的括号汉字对齐！
                     </div>
                     
                     <!-- 批量导入入口按钮 -->
@@ -642,6 +642,20 @@
             <form id="edit-vocab-form" class="space-y-5 flex-1 min-h-0 overflow-y-auto pr-1">
                 <input type="hidden" id="edit-card-id">
                 <input type="hidden" id="edit-card-notebook">
+
+                <!-- 标签编辑区：移到表单最上方，加标签无需滚动 -->
+                <div class="space-y-1.5">
+                    <label class="block text-xs font-semibold text-stone-500 dark:text-stone-400">标签 - 输入后按回车添加</label>
+                    <div class="px-4 py-2.5 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl flex flex-wrap gap-2 items-center focus-within:ring-2 focus-within:ring-emerald-700/20 dark:focus-within:ring-teal-700/30 focus-within:border-emerald-700 dark:focus-within:border-teal-700 transition duration-200">
+                        <div id="edit-tags-container" class="flex flex-wrap gap-1.5">
+                            <!-- Tags 动态插入这里 (JS里颜色已统一) -->
+                        </div>
+                        <input type="text" id="edit-tag-input" placeholder="输入标签..." class="flex-1 min-w-[80px] bg-transparent text-sm focus:outline-none text-stone-800 dark:text-stone-200">
+                    </div>
+                    <!-- 历史标签快捷添加（点击即加入当前卡片） -->
+                    <div id="edit-tag-suggestions" class="hidden flex flex-wrap gap-1.5 pt-1.5"></div>
+                </div>
+
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-5">
                     <div class="space-y-1.5 flex flex-col justify-between">
                         <!-- 对齐顶部绿：字号恢复 text-xs -->
@@ -652,7 +666,7 @@
                                 class="font-japanese w-full pl-4 pr-24 py-3 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-700/20 dark:focus:ring-teal-700/30 focus:border-emerald-700 dark:focus:border-teal-700 text-sm text-stone-800 dark:text-stone-200 transition duration-200">
                             
                             <!-- 对齐顶部绿：去掉渐变色，统一按钮 UI -->
-                            <button type="button" id="edit-ai-parse-btn" onclick="autoLookupWord(true)" class="absolute right-2.5 py-1.5 px-2.5 bg-emerald-800 dark:bg-teal-700 text-white rounded-lg text-[11px] font-semibold hover:bg-emerald-900 dark:hover:bg-teal-600 transition-all duration-200 flex items-center shadow-sm active:scale-95" title="使用AI重新校准读音">
+                            <button type="button" id="edit-ai-parse-btn" onclick="autoLookupWord(true)" class="absolute right-2.5 py-1.5 px-2.5 bg-emerald-800 dark:bg-teal-700 text-white rounded-lg text-[11px] font-semibold hover:bg-emerald-900 dark:hover:bg-teal-600 transition-all duration-200 flex items-center shadow-sm active:scale-95" title="使用AI重新校准读音（快捷键 Ctrl+Enter）">
                                 <span id="edit-ai-btn-spinner" class="hidden animate-spin mr-1">
                                     <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
                                 </span>
@@ -677,19 +691,6 @@
                     <label class="block text-xs font-semibold text-stone-500 dark:text-stone-400">例句</label>
                     <textarea id="edit-example" rows="2" lang="ja"
                         class="w-full px-4 py-3 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-700/20 dark:focus:ring-teal-700/30 focus:border-emerald-700 dark:focus:border-teal-700 text-sm resize-none text-stone-800 dark:text-stone-200 transition duration-200"></textarea>
-                </div>
-
-                <!-- 标签编辑区 -->
-                <div class="space-y-1.5">
-                    <label class="block text-xs font-semibold text-stone-500 dark:text-stone-400">标签 - 输入后按回车添加</label>
-                    <div class="px-4 py-2.5 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl flex flex-wrap gap-2 items-center focus-within:ring-2 focus-within:ring-emerald-700/20 dark:focus-within:ring-teal-700/30 focus-within:border-emerald-700 dark:focus-within:border-teal-700 transition duration-200">
-                        <div id="edit-tags-container" class="flex flex-wrap gap-1.5">
-                            <!-- Tags 动态插入这里 (JS里颜色已统一) -->
-                        </div>
-                        <input type="text" id="edit-tag-input" placeholder="输入标签..." class="flex-1 min-w-[80px] bg-transparent text-sm focus:outline-none text-stone-800 dark:text-stone-200">
-                    </div>
-                    <!-- 历史标签快捷添加（点击即加入当前卡片） -->
-                    <div id="edit-tag-suggestions" class="hidden flex flex-wrap gap-1.5 pt-1.5"></div>
                 </div>
 
                 <!-- 重构的移动位置选项：干掉 Move 按钮 -->
@@ -740,9 +741,9 @@
     </div>
 
 
-    <!-- 4. 非阻塞式通知 & 撤销操作 Toast（居中偏下：右下角容易落在视觉盲区，尤其宽屏） -->
-    <div id="toast" class="fixed bottom-6 left-1/2 -translate-x-1/2 px-5 py-3.5 bg-stone-900 dark:bg-stone-200 text-stone-100 dark:text-stone-900 rounded-xl text-sm shadow-xl translate-y-20 opacity-0 transition-all duration-300 pointer-events-auto z-[70] flex items-center justify-between space-x-4 max-w-[calc(100vw-2rem)]">
-        <span id="toast-message" class="font-medium"></span>
+    <!-- 4. 非阻塞式通知 & 撤销操作 Toast（右下角：不遮挡卡片主阅读区） -->
+    <div id="toast" class="fixed bottom-6 right-6 px-5 py-3.5 bg-stone-900 dark:bg-stone-200 text-stone-100 dark:text-stone-900 rounded-xl text-sm shadow-xl translate-y-20 opacity-0 transition-all duration-300 pointer-events-auto z-[70] flex items-center justify-between space-x-4 max-w-[calc(100vw-2rem)]">
+        <span id="toast-message" class="font-medium min-w-0 break-words"></span>
         <button id="toast-action" class="hidden text-emerald-400 dark:text-teal-600 hover:text-emerald-300 dark:hover:text-teal-700 font-bold text-xs shrink-0 px-2 py-1 bg-stone-800 dark:bg-stone-300 hover:bg-stone-700 dark:hover:bg-stone-400 rounded transition">撤销</button>
     </div>
 

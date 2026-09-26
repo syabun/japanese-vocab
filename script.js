@@ -80,8 +80,19 @@ let searchDebounceTimer = null;
 const cardsPerBatch = 48;
 let visibleCardLimit = cardsPerBatch;
 
+// ==========================================
+// 🎲 打乱顺序（顺序持久化 + 新卡自动置顶）
+// 规则：
+//  ① 打乱结果落盘（localStorage），刷新、切单词本、切筛选都沿用同一副顺序，
+//     不再"一动就重洗"；只有主动点「打乱顺序」才重新洗牌。
+//  ② 新添加的卡不进顺序表，靠"未入序"这一特征被识别为 fresh，
+//     渲染时统一排在最前面（连续添加即越新的越靠前），直到下次点「打乱顺序」，
+//     重洗时它们才作为普通牌融进牌堆。
+//  这样任何新增入口（手动添加 / AI 批量导入 / 云同步拉取）都自动生效，
+//  不需要在每个写入点手写一遍"置顶"逻辑。
+// ==========================================
+const SHUFFLE_ORDER_KEY = 'japanese_vocab_shuffle_order';
 let shuffleOrder = null;
-let shuffleContextKey = '';
 
 function fisherYatesShuffle(arr) {
     for (let i = arr.length - 1; i > 0; i--) {
@@ -91,25 +102,51 @@ function fisherYatesShuffle(arr) {
     return arr;
 }
 
-function getShuffleContextKey() {
-    return JSON.stringify([activeNotebook, cardFilter, activeTagFilters]);
+// 全库所有卡片 id（跨单词本，一副牌管所有视图）
+function getAllCardIds() {
+    const ids = [];
+    Object.values(notebooks).forEach(cards => (cards || []).forEach(c => ids.push(c.id)));
+    return ids;
 }
 
-function ensureShuffleOrder(filteredList) {
-    const contextKey = getShuffleContextKey();
-    if (!shuffleOrder || shuffleContextKey !== contextKey) {
-        shuffleContextKey = contextKey;
-        shuffleOrder = fisherYatesShuffle(filteredList.map(item => item.id));
-        return;
-    }
-    const orderSet = new Set(shuffleOrder);
-    if (filteredList.some(item => !orderSet.has(item.id))) {
-        shuffleOrder = fisherYatesShuffle(filteredList.map(item => item.id));
+function persistShuffleOrder() {
+    try {
+        localStorage.setItem(SHUFFLE_ORDER_KEY, JSON.stringify(shuffleOrder || []));
+    } catch (e) {
+        // 隐私模式等写不进去的场景：降级为"仅本次会话有效"，不影响使用
     }
 }
 
+// 读取/初始化顺序表。首次使用（本地没有记录）时生成一副新牌并落盘。
+function ensureShuffleOrder() {
+    if (shuffleOrder) return shuffleOrder;
+
+    let saved = null;
+    try {
+        saved = JSON.parse(localStorage.getItem(SHUFFLE_ORDER_KEY) || 'null');
+    } catch (e) {
+        saved = null;
+    }
+
+    const allIds = getAllCardIds();
+
+    if (Array.isArray(saved) && saved.length > 0) {
+        // 剔除已删除的卡留下的无效 id；新卡故意不补进顺序表（补了就不叫置顶了）
+        const alive = new Set(allIds);
+        shuffleOrder = saved.filter(id => alive.has(id));
+        if (shuffleOrder.length === 0) shuffleOrder = fisherYatesShuffle(allIds.slice());
+    } else {
+        shuffleOrder = fisherYatesShuffle(allIds.slice());
+    }
+
+    persistShuffleOrder();
+    return shuffleOrder;
+}
+
+// 重新洗牌：把当前全部卡片（含之前置顶的新卡）重新打乱并落盘
 function reshuffleDisplay() {
-    shuffleOrder = null;
+    shuffleOrder = fisherYatesShuffle(getAllCardIds());
+    persistShuffleOrder();
     visibleCardLimit = cardsPerBatch;
     renderCards();
 }
@@ -923,11 +960,16 @@ function getDisplayedCards() {
 
     filteredList = filteredList.filter(item => matchesSearchTerms(item, searchTerms));
 
-    ensureShuffleOrder(filteredList);
-    if (shuffleOrder) {
-        const rank = new Map(shuffleOrder.map((id, idx) => [id, idx]));
-        filteredList = filteredList.slice().sort((a, b) => (rank.get(a.id) ?? 1e9) - (rank.get(b.id) ?? 1e9));
-    }
+    // 顺序编排：已入序的卡按打乱顺序排；未入序的（刚添加的新卡）原样浮到最前，
+    // 且不打断其余卡片的相对顺序（不再"一加新卡就整副重洗"）
+    ensureShuffleOrder();
+    const rank = new Map(shuffleOrder.map((id, idx) => [id, idx]));
+    const freshCards = [];
+    const settledCards = [];
+    filteredList.forEach(item => (rank.has(item.id) ? settledCards : freshCards).push(item));
+    settledCards.sort((a, b) => rank.get(a.id) - rank.get(b.id));
+    filteredList = freshCards.concat(settledCards);
+
     return { filteredList, isGlobalSearch, isGlobalScope };
 }
 
@@ -1148,11 +1190,16 @@ function updateLoadMoreControl(totalCardCount) {
 
 // ==========================================
 // 📐 fit-to-card：卡片内容自适应缩放（从机制上消灭卡片滚动条）
-// 原理：卡片盒子与网格轨道尺寸永远不变，只调节卡内 --fit-scale 字号系数；
+// 原理：卡片盒子与网格轨道尺寸永远不变，只调节卡内字号系数；
 // 逐卡测量正反两面 .card-content-scroll 是否溢出，溢出则每次 -0.05 直到刚好放下。
 // 性能设计：① 固定盒子 = 无行对齐/无级联重排（与"改高度拉齐行"的卡顿方案本质不同）
 // ② IntersectionObserver 只在卡片进入视口 ±200px 时处理，屏外卡片零成本
 // ③ 滚动/缩放触发均为批处理，单次成本与卡片总数无关。
+//
+// ⚠️ 正面与背面使用两个互相独立的系数，必须分开测量（修复：背面长例句把正面单词压小）
+//    正面 --fit-front：只看正面那个单词会不会放不下
+//    背面 --fit-scale：看读音/释义/例句会不会放不下
+//    早期版本共用一个 --fit-scale，导致"例句很长"的卡片把正面单词连带缩到 0.55 倍。
 // ==========================================
 const FIT_MIN_SCALE = 0.55;
 const FIT_STEP = 0.05;
@@ -1160,24 +1207,33 @@ const FIT_VIEW_MARGIN = 200;
 let fitObserver = null;
 let fitRefitTimer = null;
 
+function isScrollAreaOverflowing(area) {
+    return area.scrollHeight > area.clientHeight + 1 || area.scrollWidth > area.clientWidth + 1;
+}
+
+// 对某一面的内容区域逐级缩小系数，直到不溢出或触底
+function fitFace(card, selector, cssVar) {
+    const areas = card.querySelectorAll(selector);
+    if (areas.length === 0) return;
+    let fit = 1;
+    while (fit > FIT_MIN_SCALE) {
+        let overflow = false;
+        for (const area of areas) {
+            if (isScrollAreaOverflowing(area)) { overflow = true; break; }
+        }
+        if (!overflow) break;
+        fit = Math.max(FIT_MIN_SCALE, +(fit - FIT_STEP).toFixed(2));
+        card.style.setProperty(cssVar, String(fit));
+    }
+}
+
 function fitSingleCard(card) {
     try {
+        card.style.setProperty('--fit-front', '1');
         card.style.setProperty('--fit-scale', '1');
-        const scrollAreas = card.querySelectorAll('.card-content-scroll');
-        if (scrollAreas.length === 0) return;
-        let fit = 1;
-        while (fit > FIT_MIN_SCALE) {
-            let overflow = false;
-            for (const area of scrollAreas) {
-                if (area.scrollHeight > area.clientHeight + 1 || area.scrollWidth > area.clientWidth + 1) {
-                    overflow = true;
-                    break;
-                }
-            }
-            if (!overflow) break;
-            fit = Math.max(FIT_MIN_SCALE, +(fit - FIT_STEP).toFixed(2));
-            card.style.setProperty('--fit-scale', String(fit));
-        }
+        // 顺序无关：两面互不影响，各自只看自己那面的内容
+        fitFace(card, '.card-front .card-content-scroll', '--fit-front');
+        fitFace(card, '.card-back .card-content-scroll', '--fit-scale');
     } catch (err) {
         // 测量环境异常（极端缩放/隐藏标签页）时保持 1.0，绝不让适配逻辑破坏渲染
     }
@@ -1346,6 +1402,19 @@ document.getElementById('edit-tag-input').addEventListener('keydown', function(e
         }
         this.value = '';
     }
+});
+
+// ⌨️ 快捷键：焦点在单词输入框时按 Ctrl+Enter（Mac 为 Cmd+Enter）触发「匹配假名」，
+// 免去摸鼠标点按钮。isComposing 判断保证日文输入法组合期间不误触。
+['input-word', 'edit-word'].forEach(id => {
+    const wordInput = document.getElementById(id);
+    if (!wordInput) return;
+    wordInput.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !e.isComposing) {
+            e.preventDefault();
+            autoLookupWord(id === 'edit-word');
+        }
+    });
 });
 
 // 统一提交：内容保存与移动合并一处
@@ -2810,6 +2879,7 @@ function setupInputClearButtons() {
 
         const clearButton = document.createElement('button');
         clearButton.type = 'button';
+        clearButton.tabIndex = -1; // 移出 Tab 顺序：Tab 只在输入框之间跳转，清空用鼠标点击
         clearButton.className = 'input-clear-btn';
         clearButton.setAttribute('aria-label', '清除內容');
         clearButton.title = '清除內容';

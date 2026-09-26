@@ -151,17 +151,32 @@ rt {
 }
 
 /* 所有卡片内部的变量声明，它们会自动继承来自父级 #cards-grid 的等比缩放参数；
-   字号 = 字号系数 × fit-to-card 单卡适配系数（溢出的卡片由 JS 逐级调小 --fit-scale，
-   卡片盒子尺寸与网格轨道完全不变，避免任何级联重排） */
+   字号 = 字号系数 × fit-to-card 单卡适配系数（溢出的卡片由 JS 逐级调小系数，
+   卡片盒子尺寸与网格轨道完全不变，避免任何级联重排）。
+
+   ⚠️ 正反两面各有独立的适配系数，切勿合并成一个：
+   正面只展示单词，背面可能有读音+释义+长例句。若共用一个系数，一张背面例句很长的卡
+   会把系数一路压到下限（0.55），正面那个孤零零的单词就被连带缩到别人一半大。
+   --fit-front 仅由正面自身溢出决定；--fit-scale 仅由背面溢出决定。 */
 .card-scale-box {
+    /* 正面（单词面）专属 */
+    --fit-front: 1.0;
+    /* 背面（释义面）专属，背面内的例句等子元素也统一跟随它 */
     --fit-scale: 1.0;
     --card-pad: calc(1.25rem * var(--card-scale, 1.0));
-    --fs-title: calc(1.875rem * var(--font-scale, 1.0) * var(--fit-scale));
+    --fs-title: calc(1.875rem * var(--font-scale, 1.0) * var(--fit-front));
     --fs-sub: calc(1.375rem * var(--font-scale, 1.0) * var(--fit-scale));
     --fs-text: calc(0.875rem * var(--font-scale, 1.0) * var(--fit-scale));
-    --fs-small: calc(0.75rem * var(--font-scale, 1.0) * var(--fit-scale));
+    --fs-small: calc(0.75rem * var(--font-scale, 1.0) * var(--fit-front));
     --fs-tiny: calc(0.625rem * var(--font-scale, 1.0) * var(--fit-scale));
+    --fs-tiny-front: calc(0.625rem * var(--font-scale, 1.0) * var(--fit-front));
     --spacing-gap: calc(0.75rem * var(--card-scale, 1.0));
+}
+
+/* 正面内的小字（FRONT 标签、来源单词本徽章）跟随正面系数，
+   不被背面的长例句连带缩小。背面内的同名小字仍用 --fit-scale。 */
+.card-front {
+    --fs-tiny: var(--fs-tiny-front);
 }
 
 /* Back to top button */
@@ -251,8 +266,10 @@ rt {
 }
 .input-clear-wrap > input,
 .input-clear-wrap > textarea {
-    padding-right: 2.75rem !important;
+    padding-right: 2.25rem !important;
 }
+/* 一键清空按钮：无底色浅灰小 ×，平时半透明常驻（余光可见、不抢戏），
+   输入框聚焦或悬停时变清晰，hover 到按钮本身再加深提示可点 */
 .input-clear-btn {
     position: absolute;
     right: 0.65rem;
@@ -261,13 +278,13 @@ rt {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 2rem;
-    height: 2rem;
+    width: 1.25rem;
+    height: 1.25rem;
     padding: 0;
     border: 0;
     border-radius: 9999px;
-    background: #e7e5e4;
-    color: #78716c;
+    background: transparent;
+    color: #a8a29e;
     font-size: 0;
     line-height: 0;
     cursor: pointer;
@@ -276,13 +293,19 @@ rt {
     opacity: 0;
     pointer-events: none;
     transform: translateY(-50%) scale(0.9);
-    transition: opacity 0.15s ease, transform 0.15s ease, background 0.15s ease;
+    transition: opacity 0.15s ease, transform 0.15s ease, background 0.15s ease, color 0.15s ease;
 }
 .input-clear-wrap.has-content .input-clear-btn,
 .has-content .input-clear-inline {
-    opacity: 1;
+    opacity: 0.45;
     pointer-events: auto;
     transform: translateY(-50%) scale(1);
+}
+.input-clear-wrap.has-content:hover .input-clear-btn,
+.input-clear-wrap.has-content:focus-within .input-clear-btn,
+.has-content:hover .input-clear-inline,
+.has-content:focus-within .input-clear-inline {
+    opacity: 1;
 }
 .input-clear-wrap > textarea + .input-clear-btn {
     top: 0.75rem;
@@ -291,10 +314,10 @@ rt {
 .input-clear-wrap.has-content > textarea + .input-clear-btn {
     transform: scale(1);
 }
-.input-clear-btn svg { width: 1rem; height: 1rem; pointer-events: none; }
-.input-clear-btn:hover { background: #d6d3d1; color: #44403c; }
-.dark .input-clear-btn { background: #57534e; color: #d6d3d1; }
-.dark .input-clear-btn:hover { background: #78716c; color: #fff; }
+.input-clear-btn svg { width: 0.75rem; height: 0.75rem; pointer-events: none; }
+.input-clear-btn:hover { background: rgba(0, 0, 0, 0.06); color: #44403c; }
+.dark .input-clear-btn { background: transparent; color: #78716c; }
+.dark .input-clear-btn:hover { background: rgba(255, 255, 255, 0.08); color: #e7e5e4; }
 .input-clear-inline {
     position: absolute;
     right: 4.7rem;
