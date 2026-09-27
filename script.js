@@ -519,7 +519,7 @@ function renderTagManagerList() {
 
         const delBtn = document.createElement('button');
         delBtn.type = 'button';
-        delBtn.className = 'shrink-0 px-2 py-1 rounded-md text-[11px] font-semibold text-stone-400 dark:text-stone-500 border border-transparent hover:text-red-600 dark:hover:text-red-400 hover:border-red-300 dark:hover:border-red-700 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors';
+        delBtn.className = 'shrink-0 px-2 py-1 rounded-md text-[11px] font-semibold text-stone-400 dark:text-stone-500 border border-transparent hover:text-danger-600 dark:hover:text-danger-400 hover:border-transparent hover:bg-danger-50 dark:hover:bg-danger-900/20 transition-colors';
         delBtn.textContent = '删除';
         delBtn.title = `删除标签「${tag}」（影响 ${counts.get(tag)} 个单词，8 秒内可撤销）`;
         // 防误触：按下与抬起若位置偏移超过 8px（触屏滑动/鼠标拖拽），视为滑动而非点击
@@ -601,7 +601,7 @@ window.openConfirmModal = function(options) {
 
     const isDanger = opts.danger !== false;
     okBtn.className = isDanger
-        ? 'px-5 py-2 bg-red-600 dark:bg-red-700 text-white rounded-xl text-xs font-semibold hover:bg-red-700 dark:hover:bg-red-600 transition shadow-sm'
+        ? 'px-5 py-2 bg-danger-600 dark:bg-danger-700 text-white rounded-xl text-xs font-semibold hover:bg-danger-700 dark:hover:bg-danger-600 transition shadow-sm'
         : 'px-5 py-2 bg-emerald-800 dark:bg-teal-700 text-white rounded-xl text-xs font-semibold hover:bg-emerald-900 dark:hover:bg-teal-600 transition shadow-sm';
 
     confirmModalCallback = typeof opts.onConfirm === 'function' ? opts.onConfirm : null;
@@ -679,12 +679,21 @@ function updateTagScrollFade() {
     const el = document.getElementById('global-tags-filter');
     if (!el) return;
     el.classList.remove('tag-fade-left', 'tag-fade-right', 'tag-fade-both');
-    if (el.scrollWidth <= el.clientWidth + 1) return;
+    // 渐隐提示改用外层绝对定位的渐变覆盖层（见 style.css .tag-fade-overlay）：
+    // mask-image 会把标签文字强制降级为灰度抗锯齿，12px 粗体中文看起来发虚。
+    const showLeft = (on) => document.getElementById('tag-fade-overlay-left')?.classList.toggle('is-visible', on);
+    const showRight = (on) => document.getElementById('tag-fade-overlay-right')?.classList.toggle('is-visible', on);
+    if (el.scrollWidth <= el.clientWidth + 1) {
+        showLeft(false); showRight(false);
+        return;
+    }
     const atStart = el.scrollLeft <= 1;
     const atEnd = el.scrollLeft + el.clientWidth >= el.scrollWidth - 1;
     if (!atStart && !atEnd) el.classList.add('tag-fade-both');
     else if (!atEnd) el.classList.add('tag-fade-right');
     else if (!atStart) el.classList.add('tag-fade-left');
+    showLeft(!atStart);
+    showRight(!atEnd);
 }
 
 window.toggleTagFilter = function(tag) {
@@ -750,15 +759,15 @@ window.setViewMode = function(mode) {
     const gridContainer = document.getElementById('cards-grid');
 
     if (mode === "grid") {
-        gridBtn.className = "px-3.5 py-1.5 w-1/2 sm:w-auto rounded-lg text-xs font-bold transition duration-200 bg-white dark:bg-stone-700 text-emerald-800 dark:text-teal-400 shadow-sm flex items-center justify-center space-x-1.5";
-        listBtn.className = "px-3.5 py-1.5 w-1/2 sm:w-auto rounded-lg text-xs font-bold transition duration-200 text-stone-500 dark:text-stone-400 hover:text-stone-800 dark:hover:text-stone-200 flex items-center justify-center space-x-1.5";
+        gridBtn.className = "px-3.5 py-1.5 whitespace-nowrap w-1/2 sm:w-auto rounded-lg text-xs font-bold transition duration-200 bg-white dark:bg-stone-700 text-emerald-800 dark:text-teal-400 shadow-sm flex items-center justify-center space-x-1.5";
+        listBtn.className = "px-3.5 py-1.5 whitespace-nowrap w-1/2 sm:w-auto rounded-lg text-xs font-bold transition duration-200 text-stone-500 dark:text-stone-400 hover:text-stone-800 dark:hover:text-stone-200 flex items-center justify-center space-x-1.5";
         scaleControl.classList.remove('opacity-40', 'pointer-events-none');
         gridContainer.className = "adaptive-grid";
     } else {
-        gridBtn.className = "px-3.5 py-1.5 w-1/2 sm:w-auto rounded-lg text-xs font-bold transition duration-200 text-stone-500 dark:text-stone-400 hover:text-stone-800 dark:hover:text-stone-200 flex items-center justify-center space-x-1.5";
-        listBtn.className = "px-3.5 py-1.5 w-1/2 sm:w-auto rounded-lg text-xs font-bold transition duration-200 bg-white dark:bg-stone-700 text-emerald-800 dark:text-teal-400 shadow-sm flex items-center justify-center space-x-1.5";
+        gridBtn.className = "px-3.5 py-1.5 whitespace-nowrap w-1/2 sm:w-auto rounded-lg text-xs font-bold transition duration-200 text-stone-500 dark:text-stone-400 hover:text-stone-800 dark:hover:text-stone-200 flex items-center justify-center space-x-1.5";
+        listBtn.className = "px-3.5 py-1.5 whitespace-nowrap w-1/2 sm:w-auto rounded-lg text-xs font-bold transition duration-200 bg-white dark:bg-stone-700 text-emerald-800 dark:text-teal-400 shadow-sm flex items-center justify-center space-x-1.5";
         scaleControl.classList.add('opacity-40', 'pointer-events-none');
-        gridContainer.className = "grid grid-cols-1 gap-3 max-w-2xl mx-auto";
+        gridContainer.className = "grid grid-cols-1 gap-3 max-w-xl mx-auto";
     }
     renderCards();
 }
@@ -782,6 +791,10 @@ function renderNotebookTabs() {
     const container = document.getElementById('notebook-tabs');
     const names = Object.keys(notebooks);
 
+    // 智能显隐：只有 1 本单词本时隐藏内容区 tabs 行（切换收进顶栏徽章下拉），≥2 本自动出现
+    const tabsRow = document.getElementById('notebook-tabs-row');
+    if (tabsRow) tabsRow.classList.toggle('hidden', names.length <= 1);
+
     container.innerHTML = names.map(name => {
         const isActive = name === activeNotebook;
         const activeStyle = "bg-emerald-800 dark:bg-teal-700 text-white shadow-sm font-semibold";
@@ -796,7 +809,46 @@ function renderNotebookTabs() {
             </button>
         `;
     }).join('');
+
+    renderNotebookMenu();
 }
+
+// 顶栏徽章下拉菜单：单词本列表（含复习中词数）+ 切换
+function renderNotebookMenu() {
+    const listEl = document.getElementById('notebook-menu-list');
+    if (!listEl) return;
+    const names = Object.keys(notebooks);
+    listEl.innerHTML = names.map(name => {
+        const isActive = name === activeNotebook;
+        const reviewCount = notebooks[name].filter(c => !c.mastered).length;
+        return `
+            <button onclick="switchNotebookFromMenu('${name}')" class="w-full px-3 py-2 rounded-lg text-left text-xs font-semibold flex items-center justify-between gap-2 transition-colors ${isActive ? 'bg-emerald-800/[0.12] dark:bg-teal-300/[0.12] text-emerald-800 dark:text-teal-300' : 'text-stone-600 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-700'}">
+                <span class="truncate">${name}</span>
+                <span class="text-[10px] opacity-60 shrink-0">${reviewCount}</span>
+            </button>
+        `;
+    }).join('');
+}
+
+window.toggleNotebookMenu = function(event) {
+    if (event) event.stopPropagation();
+    document.getElementById('notebook-menu').classList.toggle('hidden');
+}
+
+window.switchNotebookFromMenu = function(name) {
+    switchNotebook(name);
+    document.getElementById('notebook-menu').classList.add('hidden');
+}
+
+// 点击菜单外部任意处关闭
+document.addEventListener('click', function(e) {
+    const menu = document.getElementById('notebook-menu');
+    if (menu && !menu.classList.contains('hidden')
+        && !e.target.closest('#notebook-menu')
+        && !e.target.closest('#notebook-badge-btn')) {
+        menu.classList.add('hidden');
+    }
+});
 
 window.switchNotebook = function(name) {
     activeNotebook = name;
@@ -1021,7 +1073,7 @@ function renderCards() {
     if (layoutMode === "grid") {
         grid.className = "adaptive-grid";
     } else {
-        grid.className = "grid grid-cols-1 gap-3 max-w-2xl mx-auto";
+        grid.className = "grid grid-cols-1 gap-3 max-w-xl mx-auto";
     }
 
     grid.innerHTML = visibleCards.map(item => buildCardHtml(item, isGlobalScope)).join('');
@@ -1415,6 +1467,15 @@ document.getElementById('edit-tag-input').addEventListener('keydown', function(e
             autoLookupWord(id === 'edit-word');
         }
     });
+});
+
+// ⌨️ 例句框：Enter 直接提交添加（Shift+Enter 换行）。isComposing 判断保证
+// 日文输入法选字期间的回车不会误提交。
+document.getElementById('input-example').addEventListener('keydown', function(e) {
+    if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.isComposing) {
+        e.preventDefault();
+        document.getElementById('vocab-form').requestSubmit();
+    }
 });
 
 // 统一提交：内容保存与移动合并一处
@@ -2310,7 +2371,7 @@ window.closeCloudSyncModal = function() {
 function updateSyncStatus(msg, isError = false) {
     const statusEl = document.getElementById('sync-status');
     statusEl.innerText = msg;
-    statusEl.className = `text-center text-xs font-semibold py-2 ${isError ? 'text-red-500 dark:text-red-400' : 'text-emerald-600 dark:text-teal-500'}`;
+    statusEl.className = `text-center text-xs font-semibold py-2 ${isError ? 'text-danger-600 dark:text-danger-400' : 'text-emerald-600 dark:text-teal-500'}`;
 }
 
 window.syncToCloud = async function() {
@@ -2527,24 +2588,30 @@ document.getElementById('search-input').addEventListener('input', function(event
 });
 
 let allFlipped = false;
-document.getElementById('toggle-all-btn').addEventListener('click', () => {
-    if (layoutMode !== "grid") {
-        showToast("一键全部翻转功能只支持【卡片平铺】模式哦！");
-        return;
-    }
-    const cardInners = document.querySelectorAll('.card-inner');
-    allFlipped = !allFlipped;
-    cardInners.forEach(card => {
-        if (allFlipped) {
-            card.classList.add('is-flipped');
+// 悬浮翻面按钮：平铺模式=全卡翻面↔还原正面；列表模式=全部展开↔收起（自愈式：
+// 只要还有没收起的条目就全部展开，全部展开过再按才全部收起，不会卡中间态）
+const flipFab = document.getElementById('flip-fab');
+if (flipFab) {
+    flipFab.addEventListener('click', () => {
+        if (layoutMode === "grid") {
+            allFlipped = !allFlipped;
+            document.querySelectorAll('.card-inner').forEach(card => {
+                card.classList.toggle('is-flipped', allFlipped);
+            });
+            flipFab.title = allFlipped ? "全部还原正面" : "全卡翻面";
         } else {
-            card.classList.remove('is-flipped');
+            const areas = document.querySelectorAll('.list-expand-area');
+            if (areas.length === 0) return;
+            const anyCollapsed = Array.prototype.some.call(areas, a => a.classList.contains('hidden'));
+            // anyCollapsed=true → 全部展开（移除 hidden）；false → 全部收起（加上 hidden）
+            areas.forEach(a => a.classList.toggle('hidden', !anyCollapsed));
+            document.querySelectorAll('.arrow-icon').forEach(icon => {
+                icon.classList.toggle('rotate-180', anyCollapsed);
+            });
+            flipFab.title = anyCollapsed ? "全部收起" : "全部展开";
         }
     });
-
-    const btnSpan = document.querySelector('#toggle-all-btn span');
-    btnSpan.innerText = allFlipped ? "还原正面" : "全卡翻面";
-});
+}
 
 window.shuffleCards = function() {
     const currentList = notebooks[activeNotebook] || [];
@@ -2838,6 +2905,7 @@ const updateBackToTopButton = () => {
     const visible = window.scrollY > 360;
     backToTopBtn.classList.toggle('is-visible', visible);
     if (shuffleFab) shuffleFab.classList.toggle('is-visible', visible);
+    if (flipFab) flipFab.classList.toggle('is-visible', visible);
 };
 window.addEventListener('scroll', updateBackToTopButton, { passive: true });
 backToTopBtn.addEventListener('click', () => {
@@ -2896,6 +2964,14 @@ function setupInputClearButtons() {
             const wrapper = document.createElement('div');
             wrapper.className = 'input-clear-wrap';
             field.parentNode.insertBefore(wrapper, field);
+            // ⚠️ 输入框是 inline-block，自身的上下外边距会计入父级行盒高度（如重命名框的 mb-5
+            // 会把 50px 的包裹层撑到 70px），使清空按钮的 top:50% 定位偏低 10px。
+            // 因此把上下外边距原样转移到包裹层，输入框自身归零，视觉间距不变、居中恢复准确。
+            const fieldStyle = getComputedStyle(field);
+            wrapper.style.marginTop = fieldStyle.marginTop;
+            wrapper.style.marginBottom = fieldStyle.marginBottom;
+            field.style.marginTop = '0';
+            field.style.marginBottom = '0';
             wrapper.appendChild(field);
             wrapper.appendChild(clearButton);
             container = wrapper;
