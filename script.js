@@ -3218,10 +3218,6 @@ window.exportToMD = function() {
         }
 
         let wordCol = formattedWord;
-        if (isGlobalScope) {
-            const cleanSource = sanitizeMdCell(item.sourceNotebook || '').replace(/</g, "&lt;").replace(/>/g, "&gt;");
-            wordCol += `<br><span style="font-size: 0.75em; color: #a8a29e;">〔${cleanSource}〕</span>`;
-        }
 
         let cleanMeaning = sanitizeMdCell(item.meaning).replace(/\|/g, "\\|").replace(/</g, "&lt;").replace(/>/g, "&gt;");
         let meaningCol = `${cleanMeaning}`;
@@ -3372,9 +3368,6 @@ window.exportToPDF = function() {
 
     const pdfRow = (item) => {
         let wordCell = toRuby(item.word, item.kana);
-        if (isGlobalScope) {
-            wordCell += `<br><span class="source-note">〔${escHtml(item.sourceNotebook || '')}〕</span>`;
-        }
         let meaningCell = escHtml(item.meaning);
         if (item.example) {
             const exampleLines = String(item.example).split(/[/／\n]+/).map(s => s.trim()).filter(Boolean);
