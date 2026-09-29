@@ -71,6 +71,15 @@ let notebooks = {};
 let activeNotebook = "日常";
 let cardFilter = "review"; // "review" (复习中) / "mastered" (已掌握) / "all" (全部)
 let activeTagFilters = []; // 当前选中的全局标签
+
+// ==========================================
+// 🏷️ 标签的自定义顺序
+// 标签本身没有独立存储（是从各卡 tags 临时聚合的派生数据），所以"自定义顺序"
+// 需要额外一份持久化的名单 tagOrder（只存标签名的先后）。
+// 它是唯一的排序方式，同时作用于：标签管理面板、顶部标签筛选栏、编辑卡片的历史标签建议条。
+// ==========================================
+const TAG_ORDER_KEY = 'japanese_vocab_tag_order';
+let tagOrder = null;
 let layoutMode = "grid"; // "grid" (平铺卡片) 或者是 "list" (迷你列表)
 let lastDeletedCard = null;
 let lastMasteredCardId = null;
@@ -93,6 +102,32 @@ let visibleCardLimit = cardsPerBatch;
 // ==========================================
 const SHUFFLE_ORDER_KEY = 'japanese_vocab_shuffle_order';
 let shuffleOrder = null;
+
+// ==========================================
+// 🖐️ 卡片拖拽排序（仅在「选中了标签」时启用）
+// 设计要点：
+//  ① 拖拽门槛：只有 activeTagFilters.length > 0 才算"被筛选"，才给卡片装手柄。
+//     搜索、掌握状态筛选都不算——那两种几乎随时处于某种状态，等于一直可拖。
+//  ② 落盘策略：只搬动被拖的那一张。把它的 id 从全局 shuffleOrder 里摘出来，
+//     插到落点邻居的前/后面，**其余卡片一个都不动**。这样筛选视图里的顺序
+//     立刻生效，取消筛选后也依然保留，且不会把"筛选子集"错误地聚成一坨。
+//  ③ 不用 HTML5 原生 drag&drop（手机上不可用），用 pointer 事件 + 手柄触发，
+//     从而天然避开"点一下就翻面/展开"的冲突——手柄上 stopPropagation 即可。
+// ==========================================
+const DRAG_FULL_RENDER_LIMIT = 300; // 筛选结果不超过这个数就一次性全部渲染，方便整体拖拽
+const DRAG_LONG_PRESS_MS = 300;     // 长按多久算"要拖"（iOS 主屏图标大约也是这个量级）
+const DRAG_START_MOVE_PX = 10;      // 鼠标/触控笔：按住后挪这么多也直接起拖（不用等长按）
+const DRAG_CANCEL_MOVE_PX = 14;     // 触屏：起拖"之前"挪这么多就放弃，把手势还给页面滚动
+const DRAG_EDGE_PX = 72;            // 拖到距视口上下边缘这么近时自动滚动
+const DRAG_FLIP_MAX_ITEMS = 120;    // 超过这么多张就不做让位动画（保住拖动流畅度）
+let manualCardOrder = false;        // 是否手动拖过（用于「打乱顺序」时给不同的提示）
+let dragState = null;
+let suppressCardClickUntil = 0;     // 起拖过的那一次抬手会紧跟着一个 click，需要掐掉
+
+// 只有选中标签时才允许拖拽
+function isDragSortEnabled() {
+    return activeTagFilters.length > 0;
+}
 
 function fisherYatesShuffle(arr) {
     for (let i = arr.length - 1; i > 0; i--) {
@@ -147,6 +182,7 @@ function ensureShuffleOrder() {
 function reshuffleDisplay() {
     shuffleOrder = fisherYatesShuffle(getAllCardIds());
     persistShuffleOrder();
+    manualCardOrder = false; // 重洗即放弃手动排的顺序，两套顺序不打架
     visibleCardLimit = cardsPerBatch;
     renderCards();
 }
@@ -189,6 +225,19 @@ function loadData() {
             }
         });
     });
+
+    // 清理旧版本遗留的排序档位键（标签排序现在只有"自定义"一种，该键已废弃）
+    localStorage.removeItem('japanese_vocab_tag_sort');
+
+    exportSortMode = localStorage.getItem(EXPORT_SORT_KEY) || 'display';
+    if (!EXPORT_SORT_LABEL[exportSortMode]) exportSortMode = 'display';
+    updateExportSortButtons();
+    try {
+        const savedOrder = JSON.parse(localStorage.getItem(TAG_ORDER_KEY) || 'null');
+        tagOrder = Array.isArray(savedOrder) ? savedOrder : null;
+    } catch (e) {
+        tagOrder = null;
+    }
 
     const savedToken = localStorage.getItem('gist_token');
     const savedGistId = localStorage.getItem('gist_id');
@@ -347,7 +396,8 @@ function renderGlobalTags() {
 
     activeTagFilters = activeTagFilters.filter(t => allTags.has(t));
 
-    const tagsArray = Array.from(allTags);
+    // 与标签管理面板共用同一套自定义顺序
+    const tagsArray = getOrderedTags(tagCounts);
     container.innerHTML = '';
     if (tagsArray.length === 0) {
         updateTagScrollFade();
@@ -414,9 +464,55 @@ function getTagCounts() {
     return counts;
 }
 
+function saveTagOrder() {
+    localStorage.setItem(TAG_ORDER_KEY, JSON.stringify(tagOrder || []));
+}
+
+// 对账：tagOrder 与"当前实际存在的标签"对齐——已消失的剔除，新出现的补到最前面。
+// 每次取排序结果前都跑一遍，所以任何入口（加卡打新标签 / 改名 / 删除 / 云同步）都不用各自维护。
+function syncTagOrder(allTags) {
+    const alive = new Set(allTags);
+    let order = (Array.isArray(tagOrder) ? tagOrder : [])
+        .filter(t => alive.has(t))
+        .filter((t, i, arr) => arr.indexOf(t) === i); // 去重
+
+    const known = new Set(order);
+    const fresh = allTags.filter(t => !known.has(t));
+    if (fresh.length) order = fresh.concat(order);
+
+    tagOrder = order;
+    saveTagOrder();
+    return order;
+}
+
+// 返回按自定义顺序排好的标签名数组。
+// counts 是 getTagCounts() 的结果，其 Map 的插入序恰好等于"标签首次出现的顺序"，
+// 所以还没有任何手动排序时，初始顺序就是创建顺序（见 syncTagOrder）。
+function getOrderedTags(counts) {
+    const allTags = Array.from(counts.keys());
+    syncTagOrder(allTags);
+    return tagOrder.slice();
+}
+
+// 上下箭头：在全局顺序里与相邻项交换
+window.moveTag = function(tag, dir) {
+    syncTagOrder(Array.from(getTagCounts().keys()));
+    const i = tagOrder.indexOf(tag);
+    const j = i + dir;
+    if (i < 0 || j < 0 || j >= tagOrder.length) return;
+    [tagOrder[i], tagOrder[j]] = [tagOrder[j], tagOrder[i]];
+    saveTagOrder();
+    renderTagManagerList();
+    renderGlobalTags();
+    renderEditTagSuggestionsIfOpen();
+}
+
 window.openTagManager = function() {
     const modal = document.getElementById('tag-manager-modal');
     if (!modal) return;
+    // 打开时清空搜索词：否则下次打开会莫名只剩几条，且箭头因过滤被隐藏
+    const searchEl = document.getElementById('tag-manager-search');
+    if (searchEl) searchEl.value = '';
     renderTagManagerList();
     modal.classList.remove('hidden');
     modal.classList.add('flex');
@@ -435,111 +531,142 @@ function renderTagManagerList() {
     if (!list) return;
 
     const counts = getTagCounts();
-    const tags = Array.from(counts.keys()).sort((a, b) => a.localeCompare(b, 'zh-Hans-CN'));
+    const allTags = getOrderedTags(counts);
+
+    const searchEl = document.getElementById('tag-manager-search');
+    const query = searchEl ? searchEl.value.trim().toLowerCase() : '';
+    const tags = query ? allTags.filter(t => t.toLowerCase().includes(query)) : allTags;
+
     list.innerHTML = '';
 
     if (tags.length === 0) {
-        if (emptyEl) emptyEl.classList.remove('hidden');
+        if (emptyEl) {
+            emptyEl.textContent = allTags.length === 0
+                ? '还没有任何标签，去编辑单词卡片添加吧。'
+                : '没有匹配的标签';
+            emptyEl.classList.remove('hidden');
+        }
         return;
     }
     if (emptyEl) emptyEl.classList.add('hidden');
 
-    tags.forEach(tag => {
+    // 有搜索词时隐藏箭头：屏幕上看到的是过滤后的行，而"上移"是与全局相邻项交换，
+    // 点了之后标签跳到看不见的位置，比干脆不给箭头更糟。
+    const showArrows = !query;
+
+    tags.forEach((tag, idx) => {
         const row = document.createElement('div');
-        row.className = 'flex items-center gap-2 px-3 py-2 rounded-lg bg-stone-50 dark:bg-stone-900/60 border border-stone-200/70 dark:border-stone-700/70';
+        row.className = 'tag-row flex items-center gap-2 px-3 py-2 rounded-lg bg-stone-50 dark:bg-stone-900/60 border border-stone-200/70 dark:border-stone-700/70';
         row.dataset.tag = tag;
 
-        // 标签名本身就是输入框：外观与纯文本一致（无边框无底色），点击即可改名。
-        // 右侧常驻一支小铅笔作提示——触屏没有 hover，"可编辑"必须有可见线索。
-        const nameWrap = document.createElement('div');
+        // 名称列：默认纯文本，点击才就地变输入框。
+        // 不再挂铅笔图标：14px 下它的笔画糊成一团，看着像正文里多了一个点。
+        // "可点"由三处表达：cursor-text、hover 文字加深（见 style.css）、title 提示。
+        const nameCell = document.createElement('div');
+        nameCell.className = 'tag-name-cell flex-1 min-w-0 flex items-center';
+        const nameText = document.createElement('span');
+        nameText.className = 'tag-name-text truncate text-xs font-semibold text-stone-700 dark:text-stone-200 cursor-text';
+        nameText.textContent = tag;
+        nameText.title = '点击即可修改标签名（作用于全部单词本）';
+        nameCell.appendChild(nameText);
+        nameCell.addEventListener('click', () => startTagRename(nameCell, tag));
+        row.appendChild(nameCell);
 
-        // 注意：SVG 必须用 createElementNS 创建。用 createElement('svg') 得到的是
-        // HTMLUnknownElement，浏览器不按图形规则渲染，图标会整个消失。
-        // 图标紧贴文字：容器不加 gap，靠图标自身负左边距微调。
-        nameWrap.className = 'relative flex-1 min-w-0 flex items-center rounded-md px-1.5 py-0.5 border border-transparent hover:border-stone-200 dark:hover:border-stone-600 hover:bg-stone-100 dark:hover:bg-stone-800/70 focus-within:border-emerald-700 dark:focus-within:border-teal-600 transition-colors cursor-text';
+        // 词数列：固定宽度 + 右对齐，纵向一眼可比大小
+        const countEl = document.createElement('span');
+        countEl.className = 'tag-count shrink-0 w-10 text-right text-[11px] text-stone-400 dark:text-stone-500';
+        countEl.textContent = counts.get(tag);
+        row.appendChild(countEl);
 
-        const SVG_NS = 'http://www.w3.org/2000/svg';
-        const nameInput = document.createElement('input');
-        nameInput.type = 'text';
-        nameInput.value = tag;
-        nameInput.title = '点击即可修改标签名（作用于全部单词本）';
-        nameInput.className = 'bg-transparent border-0 p-0 text-xs font-semibold text-stone-700 dark:text-stone-200 focus:outline-none cursor-text';
-        // 输入框宽度跟随文字内容：size 属性按字符数估算，中日韩宽字符会被低估一半，
-        // 因此改用隐藏 span 实测像素宽度，让铅笔精确贴住字尾而非被推到行尾。
-        const measurer = document.createElement('span');
-        measurer.className = 'absolute invisible whitespace-pre text-xs font-semibold pointer-events-none';
-        measurer.setAttribute('aria-hidden', 'true');
-        const syncInputWidth = () => {
-            measurer.textContent = nameInput.value || ' ';
-            const w = measurer.getBoundingClientRect().width;
-            // 加 1px 容差避免光标挤在最后一字上
-            nameInput.style.width = Math.max(Math.ceil(w) + 1, 12) + 'px';
-        };
-        // measurer 必须在 DOM 内才能测出宽度，故先挂载再首次同步
-        nameWrap.appendChild(measurer);
-        nameInput.addEventListener('input', syncInputWidth);
-        // 字体在 document.fonts.ready 后才稳定，此时再校准一次宽度。
-        // 注意：不要在这里挂 window resize 监听——列表每次重建都会新增监听器且无从清理，
-        // 面板打开期间也没必要跟随窗口变化（关闭再开会重新测量）。
-        if (document.fonts && document.fonts.ready) document.fonts.ready.then(syncInputWidth);
-        nameInput.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') { e.preventDefault(); nameInput.blur(); }
-            if (e.key === 'Escape') { e.preventDefault(); nameInput.value = tag; syncInputWidth(); nameInput.blur(); }
-        });
-        nameInput.addEventListener('blur', () => {
-            const next = nameInput.value.trim();
-            if (next === tag) { nameInput.value = tag; syncInputWidth(); return; }
-            renameTagGlobally(tag, next);
-        });
+        if (showArrows) {
+            row.appendChild(makeTagArrowButton(tag, -1, idx === 0));
+            row.appendChild(makeTagArrowButton(tag, 1, idx === tags.length - 1));
+        }
 
-        const pencil = document.createElementNS(SVG_NS, 'svg');
-        pencil.setAttribute('viewBox', '0 0 24 24');
-        pencil.setAttribute('fill', 'none');
-        pencil.setAttribute('stroke', 'currentColor');
-        pencil.setAttribute('stroke-width', '2');
-        pencil.setAttribute('stroke-linecap', 'round');
-        pencil.setAttribute('stroke-linejoin', 'round');
-        pencil.setAttribute('aria-hidden', 'true');
-        pencil.setAttribute('class', 'w-3.5 h-3.5 shrink-0 ml-1.5 mr-1.5 text-stone-400 dark:text-stone-500 pointer-events-none transition-colors');
-        const pencilPath = document.createElementNS(SVG_NS, 'path');
-        pencilPath.setAttribute('d', 'M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z');
-        pencil.appendChild(pencilPath);
-        // 点击整块（含铅笔）都聚焦到输入框，扩大触屏的可点区域
-        nameWrap.addEventListener('click', () => nameInput.focus());
-
-        nameWrap.appendChild(nameInput);
-        nameWrap.appendChild(pencil);
-        syncInputWidth();
-        syncInputWidth();
-
-        // 词数：用项目主字体（此前误用等宽字体，Windows 上会回退成宋体）
-        const count = document.createElement('span');
-        count.className = 'shrink-0 text-[11px] text-stone-400 dark:text-stone-500';
-        count.textContent = `${counts.get(tag)} 词`;
-
-        const delBtn = document.createElement('button');
-        delBtn.type = 'button';
-        delBtn.className = 'shrink-0 px-2 py-1 rounded-md text-[11px] font-semibold text-stone-400 dark:text-stone-500 border border-transparent hover:text-danger-600 dark:hover:text-danger-400 hover:border-transparent hover:bg-danger-50 dark:hover:bg-danger-900/20 transition-colors';
-        delBtn.textContent = '删除';
-        delBtn.title = `删除标签「${tag}」（影响 ${counts.get(tag)} 个单词，8 秒内可撤销）`;
-        // 防误触：按下与抬起若位置偏移超过 8px（触屏滑动/鼠标拖拽），视为滑动而非点击
-        let downX = 0, downY = 0, downAt = 0;
-        delBtn.addEventListener('pointerdown', (e) => {
-            downX = e.clientX; downY = e.clientY; downAt = Date.now();
-        });
-        delBtn.addEventListener('click', (e) => {
-            const moved = Math.abs(e.clientX - downX) > 8 || Math.abs(e.clientY - downY) > 8;
-            const tooSlow = Date.now() - downAt > 800; // 长按不触发，避免"按着犹豫"的误判
-            if (moved) { e.preventDefault(); e.stopPropagation(); return; }
-            if (tooSlow) { e.preventDefault(); e.stopPropagation(); return; }
-            deleteTagGlobally(tag, counts.get(tag));
-        });
-
-        row.appendChild(nameWrap);
-        row.appendChild(count);
-        row.appendChild(delBtn);
+        row.appendChild(makeTagDeleteButton(tag, counts.get(tag)));
         list.appendChild(row);
     });
+}
+
+// SVG 必须用 createElementNS 创建：createElement('svg') 得到的是 HTMLUnknownElement，
+// 浏览器不按图形规则渲染，图标会整个消失。
+function makeTagIcon(pathD, cls) {
+    const NS = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(NS, 'svg');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('fill', 'none');
+    svg.setAttribute('stroke', 'currentColor');
+    svg.setAttribute('stroke-width', '2');
+    svg.setAttribute('stroke-linecap', 'round');
+    svg.setAttribute('stroke-linejoin', 'round');
+    svg.setAttribute('aria-hidden', 'true');
+    svg.setAttribute('class', cls);
+    const path = document.createElementNS(NS, 'path');
+    path.setAttribute('d', pathD);
+    svg.appendChild(path);
+    return svg;
+}
+
+function makeTagArrowButton(tag, dir, disabled) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'shrink-0 p-0.5 rounded text-stone-400 dark:text-stone-500 hover:text-stone-800 dark:hover:text-stone-200 transition-colors disabled:opacity-25 disabled:cursor-not-allowed';
+    btn.title = dir < 0 ? `把「${tag}」上移` : `把「${tag}」下移`;
+    btn.disabled = disabled;
+    btn.appendChild(makeTagIcon(dir < 0 ? 'M6 15l6-6 6 6' : 'M6 9l6 6 6-6', 'w-3.5 h-3.5'));
+    btn.addEventListener('click', () => moveTag(tag, dir));
+    return btn;
+}
+
+function makeTagDeleteButton(tag, count) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'tag-del-btn shrink-0 p-1 rounded-md text-stone-400 dark:text-stone-500 hover:text-danger-600 dark:hover:text-danger-400 hover:bg-danger-50 dark:hover:bg-danger-900/20 transition-colors';
+    btn.title = `删除标签「${tag}」（影响 ${count} 个单词，8 秒内可撤销）`;
+    btn.appendChild(makeTagIcon('M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14', 'w-3.5 h-3.5'));
+    // 防误触：按下与抬起若位置偏移超过 8px（触屏滑动/鼠标拖拽），视为滑动而非点击
+    let downX = 0, downY = 0, downAt = 0;
+    btn.addEventListener('pointerdown', (e) => {
+        downX = e.clientX; downY = e.clientY; downAt = Date.now();
+    });
+    btn.addEventListener('click', (e) => {
+        const moved = Math.abs(e.clientX - downX) > 8 || Math.abs(e.clientY - downY) > 8;
+        const tooSlow = Date.now() - downAt > 800; // 长按不触发，避免"按着犹豫"的误判
+        if (moved || tooSlow) { e.preventDefault(); e.stopPropagation(); return; }
+        deleteTagGlobally(tag, count);
+    });
+    return btn;
+}
+
+// 点击标签名 → 就地换成输入框；失焦/回车提交，Esc 取消。
+// 输入框用 w-full 而不是按文字宽度实测——后者正是铅笔位置参差的根源。
+function startTagRename(cell, oldTag) {
+    if (cell.querySelector('input')) return;
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.value = oldTag;
+    input.className = 'w-full bg-transparent border-0 p-0 text-xs font-semibold text-stone-700 dark:text-stone-200 focus:outline-none';
+    cell.innerHTML = '';
+    cell.appendChild(input);
+    input.focus();
+    input.select();
+
+    let done = false;
+    const commit = () => {
+        if (done) return;
+        done = true;
+        const next = input.value.trim();
+        if (next && next !== oldTag) {
+            renameTagGlobally(oldTag, next);
+        } else {
+            renderTagManagerList();
+        }
+    };
+    input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+        if (e.key === 'Escape') { done = true; renderTagManagerList(); }
+    });
+    input.addEventListener('blur', commit);
 }
 
 // 全库改名：所有单词本中带 oldTag 的卡片替换为 newTag；newTag 已存在则自动合并
@@ -563,6 +690,15 @@ window.renameTagGlobally = function(oldTag, newTag) {
     });
 
     if (affected === 0) { renderTagManagerList(); return; }
+
+    // 自定义顺序里原地改名，不能让 syncTagOrder 把它当成"新标签"顶到最前面
+    if (Array.isArray(tagOrder)) {
+        let order = tagOrder.filter(t => t !== newTag); // 撞名合并时先去掉重复项
+        const oi = order.indexOf(oldTag);
+        if (oi >= 0) order[oi] = newTag; else order.unshift(newTag);
+        tagOrder = order;
+        saveTagOrder();
+    }
 
     // 选中过滤里若有旧标签名，同步跟上，避免筛选静默失效
     const idx = activeTagFilters.indexOf(oldTag);
@@ -755,19 +891,17 @@ window.setViewMode = function(mode) {
     layoutMode = mode;
     const gridBtn = document.getElementById('view-grid-btn');
     const listBtn = document.getElementById('view-list-btn');
-    const scaleControl = document.getElementById('scale-control-container');
     const gridContainer = document.getElementById('cards-grid');
 
     if (mode === "grid") {
         gridBtn.className = "px-3.5 py-1.5 whitespace-nowrap w-1/2 sm:w-auto rounded-lg text-xs font-bold transition duration-200 bg-white dark:bg-stone-700 text-emerald-800 dark:text-teal-400 shadow-sm flex items-center justify-center space-x-1.5";
         listBtn.className = "px-3.5 py-1.5 whitespace-nowrap w-1/2 sm:w-auto rounded-lg text-xs font-bold transition duration-200 text-stone-500 dark:text-stone-400 hover:text-stone-800 dark:hover:text-stone-200 flex items-center justify-center space-x-1.5";
-        scaleControl.classList.remove('opacity-40', 'pointer-events-none');
         gridContainer.className = "adaptive-grid";
     } else {
         gridBtn.className = "px-3.5 py-1.5 whitespace-nowrap w-1/2 sm:w-auto rounded-lg text-xs font-bold transition duration-200 text-stone-500 dark:text-stone-400 hover:text-stone-800 dark:hover:text-stone-200 flex items-center justify-center space-x-1.5";
         listBtn.className = "px-3.5 py-1.5 whitespace-nowrap w-1/2 sm:w-auto rounded-lg text-xs font-bold transition duration-200 bg-white dark:bg-stone-700 text-emerald-800 dark:text-teal-400 shadow-sm flex items-center justify-center space-x-1.5";
-        scaleControl.classList.add('opacity-40', 'pointer-events-none');
-        gridContainer.className = "grid grid-cols-1 gap-3 max-w-xl mx-auto";
+        // 列表模式也吃 --card-scale：宽度由「卡片大小」滑块控制（见 style.css 的 .list-grid）
+        gridContainer.className = "list-grid";
     }
     renderCards();
 }
@@ -986,6 +1120,105 @@ window.toggleListExpand = function(element) {
     }
 }
 
+// ==========================================
+// 📤 导出顺序
+// 界面顺序 = getDisplayedCards() 的原序（打乱顺序 ∩ 当前筛选），是默认档。
+// 其余三档只在导出时重排，**不改变屏幕上的顺序，也不写回 shuffleOrder**。
+// ==========================================
+const EXPORT_SORT_KEY = 'japanese_vocab_export_sort';
+const EXPORT_SORT_LABEL = {
+    display: '界面顺序',
+    gojuon: '五十音',
+    added: '添加顺序',
+    tag: '按标签分组'
+};
+let exportSortMode = 'display';
+
+function updateExportSortButtons() {
+    const activeCls = "export-sort-btn px-2 py-1.5 rounded-lg text-[11px] font-semibold transition-colors bg-emerald-800/[0.12] dark:bg-teal-300/[0.12] text-emerald-800 dark:text-teal-300 shadow-sm";
+    const inactiveCls = "export-sort-btn px-2 py-1.5 rounded-lg text-[11px] font-semibold transition-colors text-stone-500 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-700 hover:text-stone-800 dark:hover:text-stone-200";
+    Object.keys(EXPORT_SORT_LABEL).forEach(m => {
+        const el = document.getElementById('export-sort-' + m);
+        if (el) el.className = (exportSortMode === m) ? activeCls : inactiveCls;
+    });
+    // 主按钮的 tooltip 带上当前档位，不用打开菜单也知道会按什么顺序导出
+    const mainBtn = document.querySelector('#export-dropdown > button');
+    if (mainBtn) mainBtn.title = `导出当前界面显示的单词为练习表（当前顺序：${EXPORT_SORT_LABEL[exportSortMode]}）`;
+}
+
+window.setExportSortMode = function(mode) {
+    if (!EXPORT_SORT_LABEL[mode]) return;
+    exportSortMode = mode;
+    localStorage.setItem(EXPORT_SORT_KEY, mode);
+    updateExportSortButtons();
+}
+
+// 五十音档的排序键：单词里的方括号注音 → kana 字段 → 单词本身，逐级降级。
+// 片假名统一折算成平假名，否则「カ」和「か」会被排到两个完全不同的位置。
+function gojuonKey(item) {
+    const bracket = String(item.word || '').match(/\[([^\]]+)\]/);
+    const raw = bracket ? bracket[1]
+        : (item.kana && item.kana.trim() ? item.kana.trim() : String(item.word || ''));
+    return raw.replace(/[\u30A1-\u30F6]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0x60));
+}
+
+// 卡片 id 是 Date.now()（纯 13 位）或 Date.now()+随机后缀，取前 13 位即添加时间。
+// 早期手写 id（如 "m1"）解析不出 → 返回 null，排序时统一沉到最后并保持界面顺序。
+function addedTimeKey(item) {
+    const m = String(item.id || '').match(/^\d{13}/);
+    // 注意取 m[0]：上面这条正则没有捕获组，m[1] 是 undefined，Number(undefined) 会静默变成 NaN，
+    // 于是所有卡的时间戳都失效、排序静默退化成原序（踩过一次）。
+    return m ? Number(m[0]) : null;
+}
+
+// 返回 { flat, groups }：groups 只在「按标签分组」档有值（[{label, items}]），其余档为 null。
+function applyExportSort(list) {
+    if (exportSortMode === 'display') return { flat: list, groups: null };
+
+    if (exportSortMode === 'gojuon') {
+        // 直接比码点：平假名块 U+3041~U+309F 本身就是あいうえお序，
+        // 濁音（が ぎ ぐ）紧跟在同行的清音（か き く）之后，符合纸质五十音表的习惯。
+        return {
+            flat: list.slice().sort((a, b) => {
+                const ka = gojuonKey(a), kb = gojuonKey(b);
+                return ka < kb ? -1 : ka > kb ? 1 : 0;
+            }),
+            groups: null
+        };
+    }
+
+    if (exportSortMode === 'added') {
+        // 最新添加的排最前面（时间倒序）。解析不出时间的旧卡仍然沉到最后。
+        const idx = new Map(list.map((it, i) => [it, i]));
+        return {
+            flat: list.slice().sort((a, b) => {
+                const ta = addedTimeKey(a), tb = addedTimeKey(b);
+                if (ta === null && tb === null) return idx.get(a) - idx.get(b);
+                if (ta === null) return 1;
+                if (tb === null) return -1;
+                return (tb - ta) || (idx.get(a) - idx.get(b));
+            }),
+            groups: null
+        };
+    }
+
+    // 按标签：分组先后沿用标签的自定义顺序（与管理面板同一套），无标签的归「未分类」沉底
+    const rank = new Map(getOrderedTags(getTagCounts()).map((t, i) => [t, i]));
+    const buckets = new Map();
+    list.forEach(item => {
+        const key = (Array.isArray(item.tags) && item.tags.length) ? item.tags[0] : '未分类';
+        if (!buckets.has(key)) buckets.set(key, []);
+        buckets.get(key).push(item);
+    });
+    const keys = Array.from(buckets.keys()).sort((a, b) => {
+        const ra = rank.has(a) ? rank.get(a) : Infinity; // 未分类 → Infinity，自然沉底
+        const rb = rank.has(b) ? rank.get(b) : Infinity;
+        return ra - rb || a.localeCompare(b, 'zh-Hans-CN');
+    });
+    const groups = keys.map(k => ({ label: k, items: buckets.get(k) }));
+    return { flat: groups.flatMap(g => g.items), groups };
+}
+
 function getDisplayedCards() {
     const searchVal = document.getElementById('search-input').value;
     const searchTerms = getSearchTerms(searchVal);
@@ -1025,7 +1258,290 @@ function getDisplayedCards() {
     return { filteredList, isGlobalSearch, isGlobalScope };
 }
 
+// 卡内的按钮/输入框不参与长按拖拽，否则会挡住它们自己的点击
+function isDragExcludedTarget(target) {
+    return !!(target && target.closest &&
+        target.closest('button, a, input, textarea, select, label, [data-no-drag]'));
+}
+
+function onCardDragPointerDown(e) {
+    if (!isDragSortEnabled() || dragState) return;
+    if (typeof e.button === 'number' && e.button !== 0) return;
+    const cardEl = e.target && e.target.closest ? e.target.closest('[data-card-id]') : null;
+    if (!cardEl || !cardEl.parentElement || cardEl.parentElement.id !== 'cards-grid') return;
+    if (isDragExcludedTarget(e.target)) return;
+
+    dragState = {
+        el: cardEl,
+        id: cardEl.dataset.cardId,
+        grid: cardEl.parentElement,
+        startX: e.clientX,
+        startY: e.clientY,
+        startIndex: -1,
+        started: false,
+        isTouch: e.pointerType === 'touch',
+        timer: null,
+        ghost: null,
+        rect: null,
+        overEl: null,
+        overAfter: null
+    };
+
+    // 这里不能 preventDefault（会连带把 mousedown 掐掉，click 就没了），
+    // 所以"拖过之后的那次 click"改由 onCardDragClickGuard 统一掐。
+    dragState.timer = setTimeout(beginCardDrag, DRAG_LONG_PRESS_MS);
+
+    window.addEventListener('pointermove', onCardDragPointerMove);
+    window.addEventListener('pointerup', onCardDragPointerUp);
+    window.addEventListener('pointercancel', onCardDragPointerCancel);
+}
+
+// 卡片"浮起来"：本体留在原位做半透明占位，跟着指针走的是一份 fixed 克隆
+function beginCardDrag() {
+    const s = dragState;
+    if (!s || s.started) return;
+    if (s.timer) { clearTimeout(s.timer); s.timer = null; }
+    s.started = true;
+    s.startIndex = Array.prototype.indexOf.call(s.grid.children, s.el);
+
+    const rect = s.el.getBoundingClientRect();
+    s.rect = rect;
+
+    const ghost = s.el.cloneNode(true);
+    ghost.classList.add('drag-ghost');
+    ghost.removeAttribute('onclick');
+    ghost.style.position = 'fixed';
+    ghost.style.left = rect.left + 'px';
+    ghost.style.top = rect.top + 'px';
+    ghost.style.margin = '0';
+
+    // 克隆被移到 body 下，就脱离了 #cards-grid 的继承链，而卡片尺寸/字号全部建立在
+    // 那几个变量上（.perspective 还有 height: var(--card-height) !important）。
+    // 不把这些变量搬过来的话，克隆会当场塌成一条 2px 的线——踩过。
+    const gridVars = getComputedStyle(s.grid);
+    ['--card-scale', '--font-scale', '--card-width', '--card-height'].forEach(name => {
+        const v = gridVars.getPropertyValue(name);
+        if (v) ghost.style.setProperty(name, v.trim());
+    });
+    // 内联 !important：样式表里的 !important 只有内联 !important 压得住
+    ghost.style.setProperty('width', rect.width + 'px', 'important');
+    ghost.style.setProperty('height', rect.height + 'px', 'important');
+
+    document.body.appendChild(ghost);
+    s.ghost = ghost;
+
+    s.el.classList.add('drag-placeholder');
+    document.body.classList.add('card-dragging');
+    // 触屏上给一下轻震动，告诉用户"已经拿起来了"（桌面端 navigator.vibrate 不存在，静默跳过）
+    try { if (navigator.vibrate) navigator.vibrate(12); } catch (err) { /* 忽略 */ }
+}
+
+function onCardDragPointerMove(e) {
+    const s = dragState;
+    if (!s) return;
+
+    if (!s.started) {
+        const dist = Math.hypot(e.clientX - s.startX, e.clientY - s.startY);
+        if (!s.isTouch && dist >= DRAG_START_MOVE_PX) {
+            beginCardDrag();
+        } else if (dist >= DRAG_CANCEL_MOVE_PX) {
+            // 触屏上这个动作多半是想滚页面，别抢
+            cancelCardDrag();
+            return;
+        } else {
+            return;
+        }
+        if (!s.started) return;
+    }
+
+    // 克隆跟着指针走（fixed + transform，不碰布局，不引起重排）
+    s.ghost.style.transform =
+        'translate3d(' + (e.clientX - s.startX) + 'px,' + (e.clientY - s.startY) + 'px,0) scale(1.04)';
+
+    // 拖到视口上下边缘时自动滚动，否则长列表没法把卡拖到远处
+    if (e.clientY < DRAG_EDGE_PX) {
+        window.scrollBy(0, -Math.ceil((DRAG_EDGE_PX - e.clientY) / 6));
+    } else if (e.clientY > window.innerHeight - DRAG_EDGE_PX) {
+        window.scrollBy(0, Math.ceil((e.clientY - (window.innerHeight - DRAG_EDGE_PX)) / 6));
+    }
+
+    // 克隆是 pointer-events:none，所以这里命中的一定是别的元素
+    const under = document.elementFromPoint(e.clientX, e.clientY);
+    if (!under || !under.closest) return;
+    const over = under.closest('[data-card-id]');
+    if (!over || over === s.el || over.parentElement !== s.grid) return;
+
+    const r = over.getBoundingClientRect();
+    // 平铺按横向中线判断插到目标前/后；列表按纵向中线
+    const after = (layoutMode === 'list')
+        ? (e.clientY > r.top + r.height / 2)
+        : (e.clientX > r.left + r.width / 2);
+
+    // 落点没变就别动 DOM：重复 insertBefore 会让让位动画反复重启
+    if (s.overEl === over && s.overAfter === after) return;
+    s.overEl = over;
+    s.overAfter = after;
+
+    flipInsertBefore(s.grid, s.el, after ? over.nextSibling : over);
+}
+
+// FLIP：先量旧位置 → 移动节点 → 用 transform 把每张卡"拉回"旧位置 → 下一帧归零，
+// 于是让位过程就是一段平滑动画。卡片太多时直接跳过动画（拖动流畅度优先）。
+function flipInsertBefore(grid, el, refNode) {
+    const items = Array.prototype.slice.call(grid.children);
+    const animate = items.length <= DRAG_FLIP_MAX_ITEMS;
+    let before = null;
+
+    if (animate) {
+        // 先复位：上一次动画可能还没跑完，残留的 transform 会让"起始位置"量错
+        items.forEach(c => { c.style.transition = 'none'; c.style.transform = ''; });
+        before = items.map(c => c.getBoundingClientRect());
+    }
+
+    grid.insertBefore(el, refNode);
+    if (!animate) return;
+
+    items.forEach((c, i) => {
+        const b = before[i], a = c.getBoundingClientRect();
+        const dx = b.left - a.left, dy = b.top - a.top;
+        if (Math.abs(dx) < 1 && Math.abs(dy) < 1) return;
+        c.style.transform = 'translate3d(' + dx + 'px,' + dy + 'px,0)';
+        requestAnimationFrame(() => {
+            c.style.transition = 'transform .18s ease';
+            c.style.transform = '';
+            // 动画收尾后清掉内联样式，否则会盖住卡片自带的 hover/展开过渡
+            setTimeout(() => {
+                if (c.style.transform === '') c.style.transition = '';
+            }, 200);
+        });
+    });
+}
+
+function detachCardDragListeners() {
+    window.removeEventListener('pointermove', onCardDragPointerMove);
+    window.removeEventListener('pointerup', onCardDragPointerUp);
+    window.removeEventListener('pointercancel', onCardDragPointerCancel);
+}
+
+// 还没起拖就放弃（触屏多半是去滚页面了）：不留任何痕迹，click 照常派发
+function cancelCardDrag() {
+    const s = dragState;
+    if (!s) return;
+    if (s.timer) clearTimeout(s.timer);
+    detachCardDragListeners();
+    dragState = null;
+}
+
+function onCardDragPointerUp() {
+    const s = dragState;
+    if (!s) return;
+    detachCardDragListeners();
+    dragState = null;
+    if (!s.started) return; // 没起拖 = 就是一次普通点击，交还给卡片自己处理
+    finishCardDrag(s);
+}
+
+function onCardDragPointerCancel() {
+    const s = dragState;
+    if (!s) return;
+    detachCardDragListeners();
+    dragState = null;
+    if (!s.started) return; // 长按计时被系统打断，什么都没发生
+    finishCardDrag(s);      // 已经拖起来了，就按当前落点收尾
+}
+
+function finishCardDrag(s) {
+    // 掐掉紧随其后的那一次 click，否则松手顺手就把卡片翻面/展开了
+    suppressCardClickUntil = Date.now() + 400;
+
+    if (s.ghost) {
+        // 克隆先滑回占位处再消失，落点一目了然，不会"啪"地瞬移
+        const dest = s.el.getBoundingClientRect();
+        s.ghost.classList.add('drag-ghost-landing');
+        s.ghost.style.transition = 'transform .16s cubic-bezier(.2,.8,.3,1), box-shadow .16s ease';
+        s.ghost.style.transform =
+            'translate3d(' + (dest.left - s.rect.left) + 'px,' + (dest.top - s.rect.top) + 'px,0) scale(1)';
+        const ghost = s.ghost;
+        setTimeout(() => ghost.remove(), 180);
+    }
+    s.el.classList.remove('drag-placeholder');
+    document.body.classList.remove('card-dragging');
+
+    const endIndex = Array.prototype.indexOf.call(s.grid.children, s.el);
+    if (endIndex === s.startIndex) return; // 原地放下：不写盘，也不打上"手动排过序"的标记
+
+    // 落点邻居：优先看"后面那张"，没有就看"前面那张"
+    const nextEl = s.el.nextElementSibling;
+    const prevEl = s.el.previousElementSibling;
+    const nextId = (nextEl && nextEl.dataset) ? nextEl.dataset.cardId : null;
+    const prevId = (prevEl && prevEl.dataset) ? prevEl.dataset.cardId : null;
+    if (!nextId && !prevId) return; // 只有一张卡，无从排序
+
+    commitCardDragOrder(s.id, nextId, prevId);
+}
+
+// capture 阶段掐 click：这样它到不了卡片上的 onclick="flipCard/toggleListExpand"
+function onCardDragClickGuard(e) {
+    if (Date.now() >= suppressCardClickUntil) return;
+    suppressCardClickUntil = 0;
+    e.stopPropagation();
+    e.preventDefault();
+}
+
+// 把拖动结果写回全局那副牌（shuffleOrder），只搬动被拖动的那一张
+function commitCardDragOrder(draggedId, nextId, prevId) {
+    ensureShuffleOrder();
+
+    // 兜底：若被显示的卡里有"未入序的新卡"（它们原本靠 fresh 规则浮在最前），
+    // 先把它们按当前显示顺序钉到顺序表最前面——显示结果不变，但此后都能参与排序。
+    const grid = document.getElementById('cards-grid');
+    const shownIds = grid ? Array.from(grid.querySelectorAll('[data-card-id]')).map(el => el.dataset.cardId) : [];
+    const inOrder = new Set(shuffleOrder);
+    const freshIds = shownIds.filter(id => !inOrder.has(id));
+    if (freshIds.length > 0) shuffleOrder = freshIds.concat(shuffleOrder);
+
+    const from = shuffleOrder.indexOf(draggedId);
+    if (from < 0) { persistShuffleOrder(); return; }
+
+    shuffleOrder.splice(from, 1);
+    let to;
+    if (nextId) {
+        to = shuffleOrder.indexOf(nextId);
+    } else {
+        to = shuffleOrder.indexOf(prevId) + 1;
+    }
+    if (to < 0) to = shuffleOrder.length; // 邻居找不到了（极端情况）就沉到最后
+    shuffleOrder.splice(to, 0, draggedId);
+
+    persistShuffleOrder();
+    manualCardOrder = true;
+    // 不弹 Toast：卡片落到哪一眼就看见了，右下角再蹦一个提示纯属打扰
+}
+
+function initCardDragSort() {
+    document.addEventListener('pointerdown', onCardDragPointerDown, true);
+    document.addEventListener('click', onCardDragClickGuard, true);
+    // 起拖之后才拦 touchmove（未起拖时拦了就没法滚页面了），滚动交给边缘自动滚
+    window.addEventListener('touchmove', (e) => {
+        if (dragState && dragState.started) e.preventDefault();
+    }, { passive: false });
+}
+
+// 兜底清理：重渲染会把卡片 DOM 整个换掉，若此时正好有拖拽在跑（例如拖动途中
+// 改了窗口尺寸触发重渲染），那枚跟着指针的克隆和 body 上的光标状态都会变成孤儿。
+function purgeDragArtifacts() {
+    if (dragState) {
+        detachCardDragListeners();
+        if (dragState.timer) clearTimeout(dragState.timer);
+        dragState = null;
+    }
+    document.querySelectorAll('.drag-ghost').forEach(el => el.remove());
+    document.querySelectorAll('.drag-placeholder').forEach(el => el.classList.remove('drag-placeholder'));
+    document.body.classList.remove('card-dragging');
+}
+
 function renderCards() {
+    purgeDragArtifacts();
     const grid = document.getElementById('cards-grid');
     const emptyState = document.getElementById('empty-state');
     const searchVal = document.getElementById('search-input').value;
@@ -1037,6 +1553,13 @@ function renderCards() {
 
     const { filteredList, isGlobalSearch, isGlobalScope } = getDisplayedCards();
     const totalCardCount = filteredList.length;
+
+    // 标签筛选且结果不多时一次性全部渲染，方便整体拖拽排序；
+    // 超过上限仍按批加载（这时拖拽只在已加载的卡片之间进行）。
+    const dragOn = isDragSortEnabled();
+    if (dragOn && totalCardCount <= DRAG_FULL_RENDER_LIMIT) {
+        visibleCardLimit = totalCardCount;
+    }
     const visibleCards = filteredList.slice(0, visibleCardLimit);
 
     if (filteredList.length === 0) {
@@ -1071,9 +1594,21 @@ function renderCards() {
     }
 
     if (layoutMode === "grid") {
-        grid.className = "adaptive-grid";
+        grid.className = "adaptive-grid" + (dragOn ? " drag-enabled" : "");
     } else {
-        grid.className = "grid grid-cols-1 gap-3 max-w-xl mx-auto";
+        grid.className = "list-grid" + (dragOn ? " drag-enabled" : "");
+    }
+
+    // 提示条只在"真的能拖"时出现（选中标签且不止一张卡）
+    const hint = document.getElementById('drag-sort-hint');
+    if (hint) {
+        if (dragOn && totalCardCount > 1) {
+            hint.classList.remove('hidden');
+            hint.classList.add('flex');
+        } else {
+            hint.classList.add('hidden');
+            hint.classList.remove('flex');
+        }
     }
 
     grid.innerHTML = visibleCards.map(item => buildCardHtml(item, isGlobalScope)).join('');
@@ -1087,6 +1622,7 @@ function buildCardHtml(item, isGlobalScope) {
         const rubyBack = parseRubyText(item.word, item.kana);
         const cleanWordFront = item.word.replace(/([^\s\[\]]+)\[([^\]]+)\]/g, '$1');
         const sourceNotebook = item.sourceNotebook || activeNotebook;
+        const dragOn = isDragSortEnabled();
         const notebookBadgeHtml = isGlobalScope
             ? `<span class="px-1.5 py-0.5 rounded-md bg-stone-100 dark:bg-stone-700/60 text-stone-500 dark:text-stone-300 font-medium" style="font-size: var(--fs-tiny);">${sourceNotebook} · ${item.mastered ? '已掌握' : '复习中'}</span>`
             : '';
@@ -1112,7 +1648,7 @@ function buildCardHtml(item, isGlobalScope) {
             }
 
             return `
-                <div class="perspective group cursor-pointer card-scale-box" data-has-example="${item.example ? 'true' : 'false'}" onclick="flipCard(this)">
+                <div class="perspective group cursor-pointer card-scale-box" data-card-id="${item.id}" data-has-example="${item.example ? 'true' : 'false'}" onclick="flipCard(this)">
                     <div class="card-inner relative w-full h-full rounded-2xl shadow-sm border border-stone-200/80 dark:border-stone-700/80 bg-white dark:bg-stone-800">
 
                         <div class="card-front absolute inset-0 w-full h-full flex flex-col justify-between rounded-2xl bg-white dark:bg-stone-800 overflow-hidden" style="padding: var(--card-pad);">
@@ -1177,11 +1713,11 @@ function buildCardHtml(item, isGlobalScope) {
             }
 
             return `
-                <div class="bg-white dark:bg-stone-800 border border-stone-200/80 dark:border-stone-700/80 rounded-xl shadow-sm hover:border-emerald-600/20 dark:hover:border-teal-600/30 transition-all duration-200 overflow-hidden cursor-pointer" onclick="toggleListExpand(this)">
-                    <div class="px-5 py-3.5 flex justify-between items-center gap-3 bg-white dark:bg-stone-800 hover:bg-stone-50/50 dark:hover:bg-stone-800/80 transition-colors">
+                <div data-card-id="${item.id}" class="bg-white dark:bg-stone-800 border border-stone-200/80 dark:border-stone-700/80 rounded-xl shadow-sm hover:border-emerald-600/20 dark:hover:border-teal-600/30 transition-all duration-200 overflow-hidden cursor-pointer" onclick="toggleListExpand(this)">
+                    <div class="list-row-main px-4 flex justify-between items-center gap-3 bg-white dark:bg-stone-800 hover:bg-stone-50/50 dark:hover:bg-stone-800/80 transition-colors">
                         <div class="flex items-center flex-1 min-w-0 flex-wrap gap-x-3 gap-y-1">
                             <span class="w-1.5 h-1.5 bg-emerald-800 dark:bg-teal-500 rounded-full transition-colors shrink-0"></span>
-                            <span class="font-japanese text-base font-semibold text-stone-800 dark:text-stone-200 tracking-wide transition-colors" lang="ja">${cleanWordFront}</span>
+                            <span class="list-row-word font-japanese text-base font-semibold text-stone-800 dark:text-stone-200 tracking-wide transition-colors" lang="ja">${cleanWordFront}</span>
                             ${isGlobalScope ? `<span class="text-[10px] text-stone-500 dark:text-stone-300 bg-stone-100 dark:bg-stone-700/60 px-1.5 py-0.5 rounded-md shrink-0">${sourceNotebook} · ${item.mastered ? '已掌握' : '复习中'}</span>` : ''}
                             ${tagsHtmlList ? `<div class="flex flex-wrap gap-1 min-w-0">${tagsHtmlList}</div>` : ''}
                         </div>
@@ -1194,7 +1730,7 @@ function buildCardHtml(item, isGlobalScope) {
                         </div>
                     </div>
 
-                    <div class="list-expand-area hidden border-t border-stone-100 dark:border-stone-700/50 bg-[#faf9f4]/80 dark:bg-stone-800/50 px-6 py-4 space-y-4 transition-colors">
+                    <div class="list-expand-area hidden border-t border-stone-100 dark:border-stone-700/50 bg-[#faf9f4]/80 dark:bg-stone-800/50 px-4 space-y-4 transition-colors">
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
                             <div class="flex items-center space-x-2">
                                 <span class="text-xs font-bold text-stone-400 dark:text-stone-500 uppercase tracking-wider shrink-0 transition-colors">读音:</span>
@@ -1423,7 +1959,7 @@ function renderEditTagSuggestions() {
     label.textContent = '历史标签：';
     box.appendChild(label);
 
-    [...allTags].sort((a, b) => a.localeCompare(b, 'zh-CN')).forEach(tag => {
+    getOrderedTags(getTagCounts()).filter(tag => allTags.has(tag)).forEach(tag => {
         const chip = document.createElement('button');
         chip.type = 'button';
         // 【重构】历史标签彻底降噪，去掉虚线框、绿字、+号，变成安静的灰色小胶囊
@@ -2391,7 +2927,9 @@ window.syncToCloud = async function() {
     const payloadContent = JSON.stringify({
         version: "1.0",
         lastSync: new Date().toISOString(),
-        notebooks: notebooks
+        notebooks: notebooks,
+        // 标签的自定义顺序（老备份没有这个字段，恢复时按"未排序"处理即可）
+        tagOrder: tagOrder || []
     }, null, 2);
 
     const payload = {
@@ -2492,8 +3030,14 @@ window.syncFromCloud = async function() {
             if (!notebooks[activeNotebook]) {
                 activeNotebook = Object.keys(notebooks)[0] || "日常";
             }
+            // 兼容旧备份：没有 tagOrder 字段就保持本地现状，不当成"顺序被清空"
+            if (Array.isArray(parsedData.tagOrder)) {
+                tagOrder = parsedData.tagOrder;
+                saveTagOrder();
+            }
             saveData();
             renderNotebookTabs();
+            renderGlobalTags();
             renderCards();
 
             localStorage.setItem('gist_token', token);
@@ -2619,8 +3163,11 @@ window.shuffleCards = function() {
         showToast("当前本里只有一个单词，不用打乱哦！");
         return;
     }
+    const hadManual = manualCardOrder;
     reshuffleDisplay();
-    showToast("顺序已打乱！快开始新一轮复习吧 🎲");
+    showToast(hadManual
+        ? "顺序已重新打乱，之前手动排的顺序已清除 🎲"
+        : "顺序已打乱！快开始新一轮复习吧 🎲");
 }
 
 window.exportToMD = function() {
@@ -2629,6 +3176,7 @@ window.exportToMD = function() {
         showToast("当前界面没有可以导出的单词！");
         return;
     }
+    const { flat: outList, groups } = applyExportSort(filteredList);
 
     const dateStr = new Date().toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' });
 
@@ -2650,13 +3198,12 @@ window.exportToMD = function() {
     let mdContent = `# 📓 日语单词自测练习表 (${scopeName})\n\n`;
     mdContent += `- **导出范围**: ${scopeName}${isGlobalScope ? '（跨单词本）' : ''}\n`;
     mdContent += `- **导出日期**: ${dateStr}\n`;
-    mdContent += `- **生词总数**: ${filteredList.length} 词\n\n`;
+    mdContent += `- **生词总数**: ${outList.length} 词\n`;
+    mdContent += `- **排序方式**: ${EXPORT_SORT_LABEL[exportSortMode]}\n\n`;
     mdContent += `---\n\n`;
     mdContent += `> **💡 背诵建议**：你可以直接将此文件导入 Obsidian、Notion 或任何支持 Markdown 的编辑器中进行背诵复习，也可以直接在笔记软件中将其输出为 PDF 打印成纸质版。最右侧的 [ 默写与自测备注栏 ] 保持空白，专门留给你进行手写自测和错词标记。\n\n`;
-    mdContent += `| 单词与假名 | 中文释义与例句 | 默写/自测备注栏 |\n`;
-    mdContent += `| :--- | :--- | :--- |\n`;
 
-    filteredList.forEach(item => {
+    const mdRow = (item) => {
         let cleanWord = sanitizeMdCell(item.word).replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
         let formattedWord = cleanWord;
@@ -2684,7 +3231,22 @@ window.exportToMD = function() {
         }
 
         mdContent += `| ${wordCol} | ${meaningCol} |  |\n`;
-    });
+    };
+
+    // 按标签分组档：每组前插一个三级标题，其余档就是一张平表
+    if (groups) {
+        groups.forEach(g => {
+            mdContent += `### 🏷️ ${g.label}（${g.items.length} 词）\n\n`;
+            mdContent += `| 单词与假名 | 中文释义与例句 | 默写/自测备注栏 |\n`;
+            mdContent += `| :--- | :--- | :--- |\n`;
+            g.items.forEach(mdRow);
+            mdContent += `\n`;
+        });
+    } else {
+        mdContent += `| 单词与假名 | 中文释义与例句 | 默写/自测备注栏 |\n`;
+        mdContent += `| :--- | :--- | :--- |\n`;
+        outList.forEach(mdRow);
+    }
 
     try {
         const blob = new Blob(['\uFEFF' + mdContent], { type: 'text/markdown;charset=utf-8;' });
@@ -2723,6 +3285,7 @@ window.exportToJSON = function() {
         showToast("当前界面没有可以导出的单词！");
         return;
     }
+    const { flat: outList } = applyExportSort(filteredList);
 
     let scopeName = activeNotebook;
     if (isGlobalScope) {
@@ -2738,7 +3301,8 @@ window.exportToJSON = function() {
         version: 1,
         scope: scopeName,
         exportedAt: new Date().toISOString().slice(0, 10),
-        cards: filteredList.map(item => ({
+        sort: EXPORT_SORT_LABEL[exportSortMode],
+        cards: outList.map(item => ({
             word: item.word,
             kana: item.kana || "",
             meaning: item.meaning || "",
@@ -2757,7 +3321,7 @@ window.exportToJSON = function() {
         link.click();
         document.body.removeChild(link);
         URL.revokeObjectURL(url);
-        showToast(`📦 JSON 单词包导出成功（${pack.cards.length} 个单词），可分享给他人导入！`);
+        showToast(`📦 JSON 单词包导出成功（${pack.cards.length} 个单词，${EXPORT_SORT_LABEL[exportSortMode]}），可分享给他人导入！`);
     } catch (err) {
         showToast("导出失败，请检查浏览器隐私及下载设置。");
     }
@@ -2776,6 +3340,7 @@ window.exportToPDF = function() {
         showToast("当前界面没有可以导出的单词！");
         return;
     }
+    const { flat: outList, groups } = applyExportSort(filteredList);
 
     let scopeName = activeNotebook;
     if (isGlobalScope) {
@@ -2805,7 +3370,7 @@ window.exportToPDF = function() {
         return safe;
     };
 
-    const rowsHtml = filteredList.map(item => {
+    const pdfRow = (item) => {
         let wordCell = toRuby(item.word, item.kana);
         if (isGlobalScope) {
             wordCell += `<br><span class="source-note">〔${escHtml(item.sourceNotebook || '')}〕</span>`;
@@ -2818,7 +3383,15 @@ window.exportToPDF = function() {
             });
         }
         return `<tr><td class="word-col font-japanese">${wordCell}</td><td>${meaningCell}</td><td class="write-col"></td></tr>`;
-    }).join('\n');
+    };
+
+    // 分组档用一行通栏的浅色小标题隔开，视觉上等于 Markdown 里的 ### 分组标题
+    const groupRowHtml = (g) =>
+        `<tr class="group-row"><td colspan="3">🏷️ ${escHtml(g.label)}（${g.items.length} 词）</td></tr>`;
+
+    const rowsHtml = groups
+        ? groups.map(g => groupRowHtml(g) + '\n' + g.items.map(pdfRow).join('\n')).join('\n')
+        : outList.map(pdfRow).join('\n');
 
     const printDoc = `<!DOCTYPE html>
 <html lang="zh-CN">
@@ -2858,6 +3431,7 @@ overflow-wrap: anywhere;
     .example-note { font-size: 8.5pt; color: #78716c; }
     tr { page-break-inside: avoid; }
     thead { display: table-header-group; }
+    tr.group-row td { background: #efeae1; font-size: 9.5pt; font-weight: 700; letter-spacing: 1pt; color: #57534e; page-break-after: avoid; }
     .print-tip { text-align: center; font-size: 9pt; color: #78716c; margin: 12pt 0 0; }
     @media print { .print-tip { display: none; } }
 </style>
@@ -2867,7 +3441,7 @@ overflow-wrap: anywhere;
     <div class="meta">
 <span><b>导出范围</b>：${escHtml(scopeName)}${isGlobalScope ? '（跨单词本）' : ''}</span>
 <span><b>导出日期</b>：${escHtml(dateStr)}</span>
-<span><b>生词总数</b>：${filteredList.length} 词</span>
+<span><b>生词总数</b>：${outList.length} 词</span><span><b>排序</b>：${escHtml(EXPORT_SORT_LABEL[exportSortMode])}</span>
     </div>
     <table>
 <thead>
@@ -2899,6 +3473,8 @@ overflow-wrap: anywhere;
 window.onload = function() {
     loadData();
 }
+// 卡片拖拽排序：事件委托挂在 document 上，卡片重渲染后不必重新绑定
+initCardDragSort();
 const backToTopBtn = document.getElementById('back-to-top-btn');
 const shuffleFab = document.getElementById('shuffle-fab');
 const updateBackToTopButton = () => {
@@ -2920,9 +3496,12 @@ if (shuffleFab) {
             showToast("当前视图里只有一个单词，不用打乱哦！");
             return;
         }
+        const hadManual = manualCardOrder;
         reshuffleDisplay();
         window.scrollTo({ top: 0, behavior: 'smooth' });
-        showToast("顺序已打乱！快开始新一轮复习吧 🎲");
+        showToast(hadManual
+            ? "顺序已重新打乱，之前手动排的顺序已清除 🎲"
+            : "顺序已打乱！快开始新一轮复习吧 🎲");
     });
 }
 

@@ -35,6 +35,89 @@ body.dark {
     width: 100%;
 }
 
+/* 3b. 列表模式：单列，宽度固定 448px（窗口更窄时自动收到窗口宽）。
+   宽度刻意不再跟滑块联动：列表横向本来就受窗口限制，窗口窄时滑块的上半段会完全无效，
+   看起来像"框不动、只有按钮在动"。滑块在列表模式下改为控制纵向密度（见下面 .list-row-*）。 */
+.list-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.75rem;
+    width: 100%;
+    max-width: 28rem;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+/* 3c. 列表模式的纵向密度：滑块（--card-scale / --font-scale）越小，行越矮越密。
+   --font-scale 由 changeCardScale() 写入：缩小时按 0.6 次幂缩得比卡片慢，放大时等比。 */
+.list-grid .list-row-main {
+    padding-top: calc(0.75rem * var(--card-scale, 1.0));
+    padding-bottom: calc(0.75rem * var(--card-scale, 1.0));
+}
+
+.list-grid .list-row-word {
+    font-size: calc(1rem * var(--font-scale, 1.0));
+}
+
+.list-grid .list-expand-area {
+    padding-top: calc(0.875rem * var(--card-scale, 1.0));
+    padding-bottom: calc(0.875rem * var(--card-scale, 1.0));
+}
+
+/* ==========================================
+   3d. 卡片拖拽排序（仅标签筛选态启用）
+   没有手柄：长按卡片任意位置 300ms 即可起拖，提示条负责说明这件事。
+   ========================================== */
+
+/* 跟着指针走的克隆：fixed 挂在 body 上。pointer-events:none 是关键——它让
+   elementFromPoint 直接穿透到底下的卡片，判断落点不用维护任何坐标偏移表。 */
+.drag-ghost {
+    pointer-events: none;
+    z-index: 999;
+    opacity: .97;
+    border-radius: 1rem;
+    transform: scale(1.04);
+    box-shadow: 0 18px 38px rgba(28, 25, 23, .26);
+    will-change: transform;
+    cursor: grabbing;
+}
+
+/* 松手后克隆滑回占位处，同时把"浮起"的影子收掉 */
+.drag-ghost-landing {
+    opacity: 1;
+    box-shadow: 0 4px 12px rgba(28, 25, 23, .12);
+}
+
+/* 原位留下的占位：半透明 + 虚线描边，指明"松手会落在这里" */
+.drag-placeholder {
+    opacity: .26;
+    outline: 2px dashed rgba(5, 150, 105, .6);
+    outline-offset: 3px;
+    border-radius: 0.75rem;
+}
+.dark .drag-placeholder {
+    outline-color: rgba(45, 212, 191, .6);
+}
+
+/* 拖到哪都显示抓手光标，避免拖拽过程中光标乱跳 */
+body.card-dragging,
+body.card-dragging * {
+    cursor: grabbing !important;
+    user-select: none;
+}
+
+/* 长按起拖的副作用：系统可能弹"选择/拷贝"菜单或开始选文字，把拖拽打断。
+   触屏设备上直接禁掉（桌面端保留选中文字的能力，方便复制单词）。 */
+.drag-enabled [data-card-id] {
+    -webkit-touch-callout: none;
+}
+@media (hover: none) {
+    .drag-enabled [data-card-id] {
+        -webkit-user-select: none;
+        user-select: none;
+    }
+}
+
 /* 3D 卡片翻转容器高度受变量控制 */
 .perspective {
     perspective: 1000px;
@@ -407,12 +490,37 @@ rt {
     line-height: 1.55;
 }
 
-/* 标签管理面板：输入框聚焦时铅笔变成主题绿，让"正在编辑"的状态更明确 */
-#tag-manager-list > div:focus-within svg {
-    color: #047857;
+/* 删除按钮默认隐藏，鼠标悬停该行才出现。
+   触屏没有 hover，"可点"必须有常驻线索，故 @media (hover: none) 下常驻显示。 */
+#tag-manager-list .tag-del-btn {
+    opacity: 0;
+    transition: opacity .15s ease, color .15s ease, background-color .15s ease;
 }
-.dark #tag-manager-list > div:focus-within svg {
-    color: #2dd4bf;
+#tag-manager-list .tag-row:hover .tag-del-btn,
+#tag-manager-list .tag-del-btn:focus-visible {
+    opacity: 1;
+}
+@media (hover: none) {
+    #tag-manager-list .tag-del-btn { opacity: 1; }
+}
+
+/* 词数列用等宽数字，纵向对齐后才好比较 */
+#tag-manager-list .tag-count { font-variant-numeric: tabular-nums; }
+
+/* 「标签名可以点击改名」的提示只靠两处安静的表达，不加下划线也不加图标：
+   ① hover 时文字由 stone-700 加深到 stone-900（下面这条 transition）；
+   ② 光标变成文本光标（cursor-text，写在元素类里）。
+   曾经的 dotted 下划线 + 14px 小铅笔在正文里非常扎眼，14px 下铅笔笔画还会糊成一个点。 */
+#tag-manager-list .tag-name-text {
+    transition: color .15s ease;
+    /* 显式写死光标：Tailwind 的 cursor-text 在这条链路上没生效（实测 computed 仍是 auto） */
+    cursor: text;
+}
+#tag-manager-list .tag-name-cell:hover .tag-name-text {
+    color: #1c1917;
+}
+.dark #tag-manager-list .tag-name-cell:hover .tag-name-text {
+    color: #fafaf9;
 }
 
 /* 聚焦时只加描边、不换底色。此前 focus-within 会把背景由透明切成纯白，
