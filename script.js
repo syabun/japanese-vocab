@@ -216,12 +216,17 @@ function loadData() {
     }
 
     Object.keys(notebooks).forEach(bookName => {
-        notebooks[bookName].forEach(card => {
+        notebooks[bookName].forEach((card, idx) => {
             if (card.mastered === undefined) {
                 card.mastered = false;
             }
             if (card.tags === undefined) {
                 card.tags = [];
+            }
+            // 兼容旧数据：已掌握的卡补一个掌握时间（用数组下标当基准，
+            // 既保留现有相对顺序，又都排在「新标记掌握」的卡片下方）
+            if (card.masteredAt === undefined) {
+                card.masteredAt = card.mastered ? idx : 0;
             }
         });
     });
@@ -1245,15 +1250,20 @@ function getDisplayedCards() {
 
     filteredList = filteredList.filter(item => matchesSearchTerms(item, searchTerms));
 
-    // 顺序编排：已入序的卡按打乱顺序排；未入序的（刚添加的新卡）原样浮到最前，
-    // 且不打断其余卡片的相对顺序（不再"一加新卡就整副重洗"）
-    ensureShuffleOrder();
-    const rank = new Map(shuffleOrder.map((id, idx) => [id, idx]));
-    const freshCards = [];
-    const settledCards = [];
-    filteredList.forEach(item => (rank.has(item.id) ? settledCards : freshCards).push(item));
-    settledCards.sort((a, b) => rank.get(a.id) - rank.get(b.id));
-    filteredList = freshCards.concat(settledCards);
+    if (cardFilter === "mastered") {
+        // 已掌握视图：最新标记的排在最上面（按掌握时间倒序）
+        filteredList.sort((a, b) => (b.masteredAt || 0) - (a.masteredAt || 0));
+    } else {
+        // 顺序编排：已入序的卡按打乱顺序排；未入序的（刚添加的新卡）原样浮到最前，
+        // 且不打断其余卡片的相对顺序（不再"一加新卡就整副重洗"）
+        ensureShuffleOrder();
+        const rank = new Map(shuffleOrder.map((id, idx) => [id, idx]));
+        const freshCards = [];
+        const settledCards = [];
+        filteredList.forEach(item => (rank.has(item.id) ? settledCards : freshCards).push(item));
+        settledCards.sort((a, b) => rank.get(a.id) - rank.get(b.id));
+        filteredList = freshCards.concat(settledCards);
+    }
 
     return { filteredList, isGlobalSearch, isGlobalScope };
 }
@@ -1649,7 +1659,7 @@ function buildCardHtml(item, isGlobalScope) {
 
             return `
                 <div class="perspective group cursor-pointer card-scale-box" data-card-id="${item.id}" data-has-example="${item.example ? 'true' : 'false'}" onclick="flipCard(this)">
-                    <div class="card-inner relative w-full h-full rounded-2xl shadow-sm border border-stone-200/80 dark:border-stone-700/80 bg-white dark:bg-stone-800">
+                    <div class="card-inner relative w-full h-full rounded-2xl shadow-sm border border-stone-200/80 dark:border-stone-700/80 bg-white dark:bg-stone-800${flippedCardIds.has(item.id) ? ' is-flipped' : ''}">
 
                         <div class="card-front absolute inset-0 w-full h-full flex flex-col justify-between rounded-2xl bg-white dark:bg-stone-800 overflow-hidden" style="padding: var(--card-pad);">
                             <div class="flex justify-between items-center w-full shrink-0" style="margin-bottom: var(--spacing-gap);">
@@ -1884,7 +1894,9 @@ window.loadMoreCards = function() {
 
 window.flipCard = function(element) {
     const inner = element.querySelector('.card-inner');
-    inner.classList.toggle('is-flipped');
+    const flipped = inner.classList.toggle('is-flipped');
+    const id = element.dataset.cardId;
+    if (id) { if (flipped) flippedCardIds.add(id); else flippedCardIds.delete(id); }
 }
 
 // ==========================================
@@ -2093,6 +2105,127 @@ window.submitDeleteCardPermanently = function() {
     }
 }
 
+/* ============================================================
+   点击音效：标记「已掌握」时播放清脆一声（WebAudio 合成，无需素材文件）
+   ============================================================ */
+// 默认开启；存 localStorage，可被顶部喇叭开关覆盖
+let soundEnabled = (localStorage.getItem('sound_enabled') !== 'false');
+
+let _audioCtx = null;
+function getAudioCtx() {
+    if (!_audioCtx) {
+        const AC = window.AudioContext || window.webkitAudioContext;
+        if (!AC) return null;
+        _audioCtx = new AC();
+    }
+    // 浏览器要求用户手势后才能出声；标记已掌握本身就是一次点击，自动 resume 即可
+    if (_audioCtx.state === 'suspended') _audioCtx.resume();
+    return _audioCtx;
+}
+
+// 圆润清脆的「铜磬/引磬」金属声：全高频非整数泛音 + 温和失谐拍频 + 柔和起音 + 短促余韵
+function playCrispClick() {
+    if (!soundEnabled) return;
+    const ctx = getAudioCtx();
+    if (!ctx) return;
+    const now = ctx.currentTime;
+
+    const master = ctx.createGain();
+    master.gain.value = 0.22;            // 高音泛音多，整体压低防止削波
+    master.connect(ctx.destination);
+
+    const f0 = 3180;   // 小铜磬基频，音区高、通透明亮 —— 回到原本认可的清脆版
+
+    // 小铜磬（引磬）的清脆金属泛音：全部落在高频区，砍掉低频「哼音」所以不闷；
+    // 非整数倍 + 温和失谐拍频 -> 清凌凌的金属微闪，余韵稍长更圆润。
+    // 圆润化：最高频泛音压低、基频尾音略拉长，整体温润不刮耳。
+    // [相对基频, 幅度, 衰减时长(秒), 失谐比例]
+    const partials = [
+        [1.00, 1.00, 1.85, 1.0015],  // 基频（主体）—— 尾音略拉长，更圆润
+        [1.35, 0.48, 1.50, 1.0020],  // 金属泛音，温和拍频带来脆响的活感
+        [1.78, 0.38, 1.15, 1.0025],  // 
+        [2.28, 0.26, 0.85, 1.0000],  // 高频闪耀
+        [2.95, 0.18, 0.62, 1.0000],  // 
+        [3.72, 0.10, 0.46, 1.0000],  // 极高频压低，减少刮耳感
+        [4.60, 0.06, 0.34, 1.0000]   // 极高频光泽（弱）
+    ];
+
+    partials.forEach(([ratio, amp, dur, detune]) => {
+        const freq = f0 * ratio;
+        // 主振荡器：起音略高、柔和落定，金属自由振动 -> 圆润不刮
+        const o = ctx.createOscillator();
+        o.type = 'sine';
+        o.frequency.setValueAtTime(freq * 1.004, now);
+        o.frequency.exponentialRampToValueAtTime(freq, now + 0.03);
+        const g = ctx.createGain();
+        g.gain.setValueAtTime(0.0001, now);
+        g.gain.exponentialRampToValueAtTime(amp, now + 0.010);          // 柔和起音 -> 圆润
+        g.gain.exponentialRampToValueAtTime(0.0001, now + dur);          // 温润余韵
+        o.connect(g).connect(master);
+        o.start(now); o.stop(now + dur + 0.05);
+
+        // 失谐副本：与主音相差几赫兹，产生缓慢拍频 -> 清凌凌的金属微闪
+        if (detune > 1.0) {
+            const o2 = ctx.createOscillator();
+            o2.type = 'sine';
+            o2.frequency.setValueAtTime(freq * detune * 1.004, now);
+            o2.frequency.exponentialRampToValueAtTime(freq * detune, now + 0.03);
+            const g2 = ctx.createGain();
+            g2.gain.setValueAtTime(0.0001, now);
+            g2.gain.exponentialRampToValueAtTime(amp * 0.7, now + 0.010);
+            g2.gain.exponentialRampToValueAtTime(0.0001, now + dur);
+            o2.connect(g2).connect(master);
+            o2.start(now); o2.stop(now + dur + 0.05);
+        }
+    });
+
+    // 槌击瞬态：极短、极轻的高通白噪声，给细金属槌敲击那一下「嗒」的真实感（压低更圆润）
+    const nb = ctx.createBuffer(1, Math.floor(ctx.sampleRate * 0.02), ctx.sampleRate);
+    const nd = nb.getChannelData(0);
+    for (let i = 0; i < nd.length; i++) nd[i] = (Math.random() * 2 - 1) * (1 - i / nd.length);
+    const ns = ctx.createBufferSource(); ns.buffer = nb;
+    const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 3600;
+    const ng = ctx.createGain();
+    ng.gain.setValueAtTime(0.05, now);
+    ng.gain.exponentialRampToValueAtTime(0.0001, now + 0.02);
+    ns.connect(hp).connect(ng).connect(master);
+    ns.start(now); ns.stop(now + 0.02);
+}
+
+window.toggleSoundEnabled = function() {
+    soundEnabled = !soundEnabled;
+    localStorage.setItem('sound_enabled', soundEnabled ? 'true' : 'false');
+    updateSoundIcon();
+    if (soundEnabled) playCrispClick(); // 打开时预览一声
+};
+
+function updateSoundIcon() {
+    const on = document.getElementById('sound-icon-on');
+    const off = document.getElementById('sound-icon-off');
+    if (!on || !off) return;
+    if (soundEnabled) {
+        on.classList.remove('hidden');
+        off.classList.add('hidden');
+    } else {
+        on.classList.add('hidden');
+        off.classList.remove('hidden');
+    }
+}
+
+// 标记「已掌握」成功时的浮层小动效：点击处弹出「✓ 已掌握」徽标，
+// 弹性缩放入场 + 柔光，约 0.72s 后淡出上浮。用 fixed 定位脱离卡片重渲染，
+// 因此「复习中」视图下卡片消失也能稳定显示；iPhone 无网页震动，此即替补奖励通道。
+function spawnMasteredPop(x, y) {
+    const el = document.createElement('div');
+    el.className = 'mastered-pop';
+    el.innerHTML = '<span class="mp-check">✓</span><span>已掌握</span>';
+    el.style.left = (x || window.innerWidth / 2) + 'px';
+    el.style.top = ((y || 80) - 26) + 'px';
+    document.body.appendChild(el);
+    el.addEventListener('animationend', () => el.remove());
+    setTimeout(() => { if (el.parentNode) el.remove(); }, 1400); // 兜底清理（须晚于动画时长 1.1s）
+}
+
 window.toggleCardMastered = function(event, cardId, notebookName = activeNotebook) {
     event.stopPropagation();
 
@@ -2101,7 +2234,14 @@ window.toggleCardMastered = function(event, cardId, notebookName = activeNoteboo
 
     if (card) {
         const oldStatus = card.mastered;
+        if (!oldStatus) {
+            playCrispClick();              // 放入「已掌握」时清脆一声
+            spawnMasteredPop(event.clientX, event.clientY); // 视觉奖励（iPhone 震动替补）
+            // 安卓震动（双脉冲对应「叮—咚」）；iPhone 不支持 navigator.vibrate，静默跳过。受静音开关控制。
+            if (soundEnabled && navigator.vibrate) navigator.vibrate([18, 40, 26]);
+        }
         card.mastered = !card.mastered;
+        if (card.mastered) card.masteredAt = Date.now(); // 记录掌握时间，用于已掌握视图按时间倒序
         saveData();
         renderCards();
         renderNotebookTabs();
@@ -3132,6 +3272,9 @@ document.getElementById('search-input').addEventListener('input', function(event
 });
 
 let allFlipped = false;
+// 翻面状态（内存中按 cardId 记录）。renderCards 重绘后据此回灌 .card-inner.is-flipped，
+// 使标记已掌握等触发整页重绘的操作不再把已翻面的卡片刷回正面。刷新页面时重置（符合「保持原样」的会话内语义）。
+const flippedCardIds = new Set();
 // 悬浮翻面按钮：平铺模式=全卡翻面↔还原正面；列表模式=全部展开↔收起（自愈式：
 // 只要还有没收起的条目就全部展开，全部展开过再按才全部收起，不会卡中间态）
 const flipFab = document.getElementById('flip-fab');
@@ -3139,8 +3282,11 @@ if (flipFab) {
     flipFab.addEventListener('click', () => {
         if (layoutMode === "grid") {
             allFlipped = !allFlipped;
-            document.querySelectorAll('.card-inner').forEach(card => {
-                card.classList.toggle('is-flipped', allFlipped);
+            document.querySelectorAll('.card-scale-box').forEach(box => {
+                const id = box.dataset.cardId;
+                const inner = box.querySelector('.card-inner');
+                if (allFlipped) { if (id) flippedCardIds.add(id); } else { if (id) flippedCardIds.delete(id); }
+                if (inner) inner.classList.toggle('is-flipped', allFlipped);
             });
             flipFab.title = allFlipped ? "全部还原正面" : "全卡翻面";
         } else {
@@ -3595,4 +3741,7 @@ setupInputClearButtons();
 if (document.fonts && document.fonts.ready) {
     document.fonts.ready.then(() => scheduleRefit());
 }
+
+// 初始化点击音效开关图标（依据 localStorage 中的 sound_enabled）
+updateSoundIcon();
 

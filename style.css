@@ -529,3 +529,39 @@ rt {
 #tag-manager-list input:focus {
     -webkit-font-smoothing: antialiased;
 }
+
+/* —— 防困小改动：标记「已掌握」成功时的浮层小动效 ——
+   在点击处弹出一个「✓ 已掌握」徽标，弹性缩放入场 + 柔光，约 0.72s 后淡出并上浮。
+   用 fixed 定位、脱离卡片重渲染，因此「复习中」视图下卡片消失也能稳定显示；
+   在 iPhone 上（无网页震动）这层视觉奖励即物理震动的替补通道。 */
+.mastered-pop {
+    position: fixed;
+    z-index: 999;
+    pointer-events: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 7px 14px;
+    border-radius: 9999px;
+    background: linear-gradient(135deg, #10b981, #059669);
+    color: #fff;
+    font-size: 15px;
+    font-weight: 800;
+    white-space: nowrap;
+    box-shadow: 0 10px 24px -6px rgba(16, 185, 129, 0.7);
+    transform: translate(-50%, -50%) scale(0.3);
+    opacity: 0;
+    animation: mastered-pop-anim 1.1s cubic-bezier(.2, .85, .25, 1) forwards;
+}
+.mastered-pop .mp-check {
+    font-size: 18px;
+    line-height: 1;
+}
+@keyframes mastered-pop-anim {
+    0%   { transform: translate(-50%, -50%) scale(0.3);  opacity: 0; }
+    18%  { transform: translate(-50%, -50%) scale(1.22); opacity: 1; }
+    34%  { transform: translate(-50%, -50%) scale(1);    opacity: 1; }
+    70%  { transform: translate(-50%, -64%) scale(1);    opacity: 1; }
+    100% { transform: translate(-50%, -82%) scale(0.96); opacity: 0; }
+}
+
