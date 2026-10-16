@@ -3,18 +3,16 @@ body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "微软雅黑", sans-serif;
 }
 
-/* 解决深色模式下背景色可能被覆盖的问题 */
-body.dark {
-    background-color: transparent; 
-}
+/* 深色模式背景由 <body> 上的 Tailwind 类 bg-[#fcfbf7] dark:bg-stone-900 负责，此处无需干预。
+   ⚠️ 历史坑：这里曾写 `body.dark { background-color: transparent }`，但 dark 类加在 <html> 上
+   （见 index.html 内联预加载脚本 + script.js 的 toggleTheme），body 上根本没有 dark 类，
+   所以那条规则从未命中。千万不要"修正"成 html.dark body —— 一旦生效会把 body 背景设为透明，
+   而 <html> 没有背景色，夜间模式会直接露出浏览器白底。故直接删除。 */
 
 /* 专属日文：采用现代无衬线黑体（Gothic），与现代中文黑体风格完美契合 */
 .font-japanese {
     font-family: 'Noto Sans JP', "Hiragino Sans", "Hiragino Kaku Gothic ProN", "ヒラギノ角ゴ ProN W3", "Meiryo", "メイリオ", sans-serif;
 }
-
-/* ✨ 自定义高级暗金注音色 (夜间模式专用) */
-.dark .text-night-gold { color: #a38a5e !important; }
 
 /* 2. 动态物理缩放核心控制变量 (卡片宽高与字体比例关联)
    --card-scale: 卡片物理尺寸系数（滑块直接控制）
@@ -131,7 +129,14 @@ body.card-dragging * {
     contain-intrinsic-size: auto var(--card-height, 380px);
 }
 .card-inner {
-    transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+    /* 翻面手感：0.5s + 缓出为主、过冲极轻的曲线。
+       原先的纯 rotateY + Material 标准曲线首尾都平，读起来像"一块板子被匀速扳过去"。
+       过冲(第二个控制点 y)只负责"弹"，长尾缓出(第三、四个控制点)负责"柔"——两者可拆：
+       过冲调大会让注意力被回弹吸走(刷词时很烦)，故压到 1.12(约 1° 过冲，几乎察觉不到)，
+       柔和感靠尾段缓出保留。
+       调参：0.5s 是时长；1.12 是过冲量：1.0=完全不过冲，1.2 略弹，1.35 明显弹(已嫌吵)。
+       想彻底无回弹但保留柔和：cubic-bezier(0.32, 0.72, 0, 1)。 */
+    transition: transform 0.5s cubic-bezier(0.34, 1.12, 0.64, 1);
     transform-style: preserve-3d;
     -webkit-transform-style: preserve-3d;
 }
@@ -158,11 +163,14 @@ ruby {
 rt {
     font-family: 'Noto Sans JP', sans-serif;
     font-size: 0.58em;
-    letter-spacing: 0em; 
+    letter-spacing: 0em;
     text-align: center;
     color: #8c7e6c; /* 优雅的灰褐色假名 (日间基础色) */
     padding-bottom: 0.1em;
     user-select: none;
+}
+.dark rt {
+    color: #a8a29e; /* 夜间模式：使用 stone-400 暖灰，与日间模式的咖灰保持统一，显眼且不突兀 */
 }
 
 /* 5. 卡片背部内容防溢出、防切割的安全滚动层 */
@@ -251,7 +259,7 @@ rt {
    ⚠️ 同上，这里也不用 mask-image：标签是 10px 中文，被合成层降级后会明显发虚。
    改用挂在标签条自身的绝对定位渐变覆盖层——绝对定位的子元素已脱离文档流，
    不会参与 flex 布局（标签条是 flex 容器，伪元素若在流内会变成一个额外的 flex 项），
-   所以布局零影响。渐变色取卡片背面底色：日间 #faf9f4、夜间 #201d1c。 */
+   所以布局零影响。渐变色取卡片背面底色：日间 #faf9f4、夜间 stone-900 (#1c1917)。 */
 .tag-strip-inline {
     position: relative;
 }
@@ -266,7 +274,7 @@ rt {
     background: linear-gradient(to right, rgba(250, 249, 244, 0), #faf9f4);
 }
 .dark .tag-strip-inline::after {
-    background: linear-gradient(to right, rgba(32, 29, 28, 0), #201d1c);
+    background: linear-gradient(to right, rgba(28, 25, 23, 0), #1c1917);
 }
 
 /* 所有卡片内部的变量声明，它们会自动继承来自父级 #cards-grid 的等比缩放参数；
@@ -290,7 +298,33 @@ rt {
     --fs-tiny: calc(0.625rem * var(--font-scale, 1.0) * var(--fit-scale));
     --fs-tiny-front: calc(0.625rem * var(--font-scale, 1.0) * var(--fit-front));
     --spacing-gap: calc(0.75rem * var(--card-scale, 1.0));
+    /* 卡片按压缩放过渡：盖过 .perspective 的 transition:none，让按压有回弹动画（iOS 无震动时的物理替补） */
+    transition: transform 0.18s ease;
 }
+
+/* —— 卡片反馈：只保留触屏按下微沉，鼠标端无任何悬停/按压反馈 ——
+   触屏：按下微沉 0.98，模拟手指把卡片压进纸面（iOS 无震动的物理替补）。
+   鼠标：完全静止。曾依次试过并都被用户否决——
+     ① 整卡位移（微抬 2px）：密集网格里鼠标扫过会「一张接一张浮起」，很吵；
+     ② 悬停换边框色：用户觉得"多一个框反而烦"。
+     故鼠标下仅靠 cursor:pointer + 点击后的翻面本身作为反馈。
+   用 (hover/pointer) 门控触屏分支，避免 iOS 上 :hover 点完卡住不消失。
+
+   ⚠️ 不要再给卡片加 box-shadow 做悬停反馈：
+   .adaptive-grid > .perspective 上有 content-visibility:auto（隐含 paint 包含），
+   会把溢出卡片边界的阴影裁掉，圆角处就会露出被切开的硬边阴影。 */
+
+/* 触屏：按下微沉 */
+@media (hover: none), (pointer: coarse) {
+    .card-scale-box:active,
+    .card-press:active {
+        transform: scale(0.98);
+    }
+}
+
+/* 鼠标端不做任何悬停反馈：用户试过「换边框色」后觉得多一个框反而烦，故全部去掉。
+   鼠标下卡片保持完全静止，仅靠 cursor:pointer 与点击后的翻面本身作为反馈。
+   ⚠️ 不要再尝试给卡片加 box-shadow / 位移 / 边框色做悬停态。 */
 
 /* 正面内的小字（FRONT 标签、来源单词本徽章）跟随正面系数，
    不被背面的长例句连带缩小。背面内的同名小字仍用 --fit-scale。 */
@@ -543,15 +577,26 @@ rt {
     gap: 5px;
     padding: 7px 14px;
     border-radius: 9999px;
-    background: linear-gradient(135deg, #10b981, #059669);
-    color: #fff;
+    /* 配色直接复用卡片右上角「已掌握」对勾按钮：浅绿底 + 绿字，无渐变，跟界面统一 */
+    background: #ecfdf5;                 /* emerald-50，与卡片 mastered 按钮底色一致 */
+    color: #059669;                      /* emerald-600，与卡片 mastered 对勾同色 */
+    border: 1px solid rgba(5, 150, 105, 0.18);
     font-size: 15px;
     font-weight: 800;
     white-space: nowrap;
-    box-shadow: 0 10px 24px -6px rgba(16, 185, 129, 0.7);
-    transform: translate(-50%, -50%) scale(0.3);
-    opacity: 0;
+    box-shadow: 0 6px 16px -8px rgba(5, 150, 105, 0.35);
+    transform: translate(-50%, -50%) scale(1);
+    /* 注意：不再默认 opacity:0，避免「减弱动态效果」等抑制 CSS 动画的环境里浮层永久不可见。
+       元素默认可见，animation 仅做弹入/上浮装饰；动画被禁时也能正常显示，由 setTimeout 兜底移除。 */
     animation: mastered-pop-anim 1.1s cubic-bezier(.2, .85, .25, 1) forwards;
+}
+.dark .mastered-pop {
+    /* 深色模式复用卡片对勾按钮：emerald-900/35 深绿底 + emerald-400 绿字
+       （夜间主色已与日间统一为 emerald，勿再写回 teal / #2dd4bf 冷青） */
+    background: rgba(6, 78, 59, 0.35);
+    color: #34d399;
+    border: 1px solid rgba(45, 212, 191, 0.25);
+    box-shadow: 0 6px 16px -8px rgba(0, 0, 0, 0.5);
 }
 .mastered-pop .mp-check {
     font-size: 18px;

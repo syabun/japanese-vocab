@@ -52,25 +52,16 @@ const defaultNotebooks = {
     ]
 };
 
-// 预装的轻量化内置离线词典数据库
-const preloadedDictionary = [
-    { word: "美味しい", kana: "おいしい", meaning: "美味的，好吃的" },
-    { word: "日本語", kana: "にほんご", meaning: "日语" },
-    { word: "昼ご飯", kana: "ひるごはん", meaning: "午饭" },
-    { word: "猫", kana: "ねこ", meaning: "猫" },
-    { word: "朋友", kana: "ともだち", meaning: "朋友" },
-    { word: "先生", kana: "せんせい", meaning: "老师" },
-    { word: "可愛い", kana: "かわいい", meaning: "可爱的" },
-    { word: "ありがとう", kana: "ありがとう", meaning: "谢谢" },
-    { word: "寿司", kana: "すし", meaning: "寿司" },
-    { word: "樱", kana: "さくら", meaning: "樱花" },
-    { word: "勉強", kana: "べんきょう", meaning: "学习，功课" }
-];
-
 let notebooks = {};
 let activeNotebook = "日常";
 let cardFilter = "review"; // "review" (复习中) / "mastered" (已掌握) / "all" (全部)
 let activeTagFilters = []; // 当前选中的全局标签
+
+// --- 云同步自动化控制变量 ---
+let autoSyncTimer = null;   // 5 分钟防抖自动上传计时器
+let syncInFlight = false;   // 同步进行中锁，防止并发上传互相覆盖
+// 本机的"云端最后同步时间"锚点：上传防呆与自动上传都依赖它判断云端是否更新
+let localLastSync = localStorage.getItem('japanese_vocab_last_sync') || null;
 
 // ==========================================
 // 🏷️ 标签的自定义顺序
@@ -82,8 +73,6 @@ const TAG_ORDER_KEY = 'japanese_vocab_tag_order';
 let tagOrder = null;
 let layoutMode = "grid"; // "grid" (平铺卡片) 或者是 "list" (迷你列表)
 let lastDeletedCard = null;
-let lastMasteredCardId = null;
-let db = null;
 const searchIndexCache = new Map();
 let searchDebounceTimer = null;
 const cardsPerBatch = 48;
@@ -251,13 +240,26 @@ function loadData() {
 
     renderNotebookTabs();
     renderCards();
-    initIndexedDB();
 }
 
-function saveData() {
+// skipAutoSync: 云同步拉取内部调用时传 true，避免"刚拉下来的数据又传回去"的空转
+function saveData(skipAutoSync = false) {
     localStorage.setItem('japanese_vocab_notebooks', JSON.stringify(notebooks));
     localStorage.setItem('japanese_vocab_active', activeNotebook);
     updateHeaderCount();
+
+    if (skipAutoSync) return;
+
+    // 触发 5 分钟防抖自动上传（仅在已完成过一次手动同步、localStorage 存有凭证时生效）
+    const token = localStorage.getItem('gist_token');
+    const gistId = localStorage.getItem('gist_id');
+    if (token && gistId) {
+        if (autoSyncTimer) clearTimeout(autoSyncTimer);
+        autoSyncTimer = setTimeout(() => {
+            autoSyncTimer = null;
+            syncToCloud(true); // isAuto = true，静默上传
+        }, 5 * 60 * 1000);
+    }
 }
 
 function rubyBracketRegex() {
@@ -269,11 +271,11 @@ function parseRubyText(word, fallbackKana) {
 
     if (bracketRegex.test(word)) {
         bracketRegex.lastIndex = 0;
-        return word.replace(bracketRegex, '<ruby>$1<rt class="dark:text-night-gold">$2</rt></ruby>');
+        return word.replace(bracketRegex, '<ruby>$1<rt>$2</rt></ruby>');
     }
 
     if (fallbackKana && fallbackKana.trim() !== "") {
-        return `<ruby>${word}<rt class="dark:text-night-gold">${fallbackKana.trim()}</rt></ruby>`;
+        return `<ruby>${word}<rt>${fallbackKana.trim()}</rt></ruby>`;
     }
 
     return word;
@@ -353,7 +355,7 @@ function formatExample(exampleText) {
 
     const jpLineCls = 'font-japanese text-stone-800 dark:text-stone-200 font-medium leading-relaxed transition-colors';
     const jpLineStyle = 'font-size: calc(0.84rem * var(--font-scale, 1.0) * var(--fit-scale, 1.0));';
-    const cnLineCls = 'text-stone-500 dark:text-stone-400 leading-normal transition-colors';
+    const cnLineCls = 'text-stone-500 dark:text-stone-500 leading-normal transition-colors';
     const cnLineStyle = 'font-size: calc(0.75rem * var(--font-scale, 1.0) * var(--fit-scale, 1.0));';
 
     const renderLine = ({ jp, cn }) => `
@@ -364,15 +366,15 @@ function formatExample(exampleText) {
     const bodyHtml = segments.length > 1
         ? segments.map((seg, idx) => `
             <div class="flex items-start" style="gap: calc(0.4rem * var(--font-scale, 1.0) * var(--fit-scale, 1.0));${idx > 0 ? ' margin-top: calc(0.5rem * var(--font-scale, 1.0) * var(--fit-scale, 1.0));' : ''}">
-                <span class="text-emerald-800/50 dark:text-teal-500/60 shrink-0 transition-colors" style="font-size: calc(0.84rem * var(--font-scale, 1.0) * var(--fit-scale, 1.0)); line-height: 1.625;">${toCircledNum(idx + 1)}</span>
+                <span class="text-emerald-800/50 dark:text-emerald-400/60 shrink-0 transition-colors" style="font-size: calc(0.84rem * var(--font-scale, 1.0) * var(--fit-scale, 1.0)); line-height: 1.625;">${toCircledNum(idx + 1)}</span>
                 <div class="min-w-0">${renderLine(parseSegment(seg))}</div>
             </div>
         `).join('')
         : renderLine(parseSegment(segments[0]));
 
     return `
-        <div class="text-left bg-white/70 dark:bg-stone-800/70 rounded-xl border border-stone-200/30 dark:border-stone-700/50 w-full transition-colors" style="padding: calc(0.75rem * var(--font-scale, 1.0) * var(--fit-scale, 1.0));">
-            <span class="uppercase font-bold tracking-wider text-emerald-800/50 dark:text-teal-500/60 block transition-colors" style="font-size: var(--fs-tiny, 0.625rem); margin-bottom: calc(0.25rem * var(--font-scale, 1.0) * var(--fit-scale, 1.0));">例句</span>
+        <div class="text-left bg-white/70 dark:bg-stone-800/30 rounded-xl w-full transition-colors" style="padding: calc(0.75rem * var(--font-scale, 1.0) * var(--fit-scale, 1.0));">
+            <span class="uppercase font-bold tracking-wider text-emerald-800/50 dark:text-emerald-400/60 block transition-colors" style="font-size: var(--fs-tiny, 0.625rem); margin-bottom: calc(0.25rem * var(--font-scale, 1.0) * var(--fit-scale, 1.0));">例句</span>
             ${bodyHtml}
         </div>
     `;
@@ -386,8 +388,16 @@ function updateHeaderCount() {
     const reviewedList = list.filter(c => !c.mastered);
     const masteredList = list.filter(c => c.mastered);
 
-    countEl.innerHTML = `复习中：<strong class="text-emerald-800 dark:text-teal-500 text-sm font-sans mx-0.5">${reviewedList.length}</strong> · 已掌握：<strong class="text-stone-500 dark:text-stone-400 text-sm font-sans mx-0.5">${masteredList.length}</strong>`;
+    countEl.innerHTML = `复习中：<strong class="text-emerald-800 dark:text-emerald-400 text-sm font-sans mx-0.5">${reviewedList.length}</strong> · 已掌握：<strong class="text-stone-500 dark:text-stone-400 text-sm font-sans mx-0.5">${masteredList.length}</strong>`;
     badgeEl.innerText = activeNotebook;
+
+    // 极简 2px 进度线：当前单词本的掌握占比（已掌握 / 总数），标记掌握时绿线平滑推进
+    const progressBar = document.getElementById('mastery-progress-bar');
+    if (progressBar) {
+        const total = list.length;
+        const progress = total === 0 ? 0 : (masteredList.length / total) * 100;
+        progressBar.style.width = progress + '%';
+    }
 
     renderGlobalTags();
 }
@@ -410,7 +420,7 @@ function renderGlobalTags() {
     }
 
     // max-w-[70vw]：防止超长标签在窄屏折行时撑出屏幕（宽屏横滑时也一并受益）
-    const activeCls = "px-3 py-1.5 rounded-lg text-xs font-bold transition duration-200 bg-emerald-800/[0.12] dark:bg-teal-300/[0.12] text-emerald-800 dark:text-teal-300 shrink-0 whitespace-nowrap max-w-[70vw] truncate";
+    const activeCls = "px-3 py-1.5 rounded-lg text-xs font-bold transition duration-200 bg-emerald-800/[0.12] dark:bg-emerald-400/[0.12] text-emerald-800 dark:text-emerald-400 shrink-0 whitespace-nowrap max-w-[70vw] truncate";
     const inactiveCls = "px-3 py-1.5 rounded-lg text-xs font-bold transition duration-200 bg-transparent text-stone-500 dark:text-stone-400 hover:bg-stone-200/50 dark:hover:bg-stone-700/50 whitespace-nowrap border border-transparent shrink-0 max-w-[70vw] truncate";
 
     const allBtn = document.createElement('button');
@@ -743,7 +753,7 @@ window.openConfirmModal = function(options) {
     const isDanger = opts.danger !== false;
     okBtn.className = isDanger
         ? 'px-5 py-2 bg-danger-600 dark:bg-danger-700 text-white rounded-xl text-xs font-semibold hover:bg-danger-700 dark:hover:bg-danger-600 transition shadow-sm'
-        : 'px-5 py-2 bg-emerald-800 dark:bg-teal-700 text-white rounded-xl text-xs font-semibold hover:bg-emerald-900 dark:hover:bg-teal-600 transition shadow-sm';
+        : 'px-5 py-2 bg-emerald-800 dark:bg-emerald-400/10 text-white dark:text-emerald-400 border border-transparent dark:border-emerald-400/25 rounded-xl text-xs font-semibold hover:bg-emerald-900 dark:hover:bg-emerald-400/20 transition shadow-sm';
 
     confirmModalCallback = typeof opts.onConfirm === 'function' ? opts.onConfirm : null;
 
@@ -883,7 +893,7 @@ function showToast(msg, onUndo = null, duration = 4000) {
 window.setCardFilter = function(filter) {
     cardFilter = filter;
     const btnIds = { review: 'filter-review-btn', mastered: 'filter-mastered-btn', all: 'filter-all-btn' };
-    const activeCls = "px-3 py-1.5 rounded-lg text-xs font-bold transition duration-200 bg-white dark:bg-stone-700 text-emerald-800 dark:text-teal-400 shadow-sm whitespace-nowrap";
+    const activeCls = "px-3 py-1.5 rounded-lg text-xs font-bold transition duration-200 bg-white dark:bg-stone-700 text-emerald-800 dark:text-emerald-400 shadow-sm whitespace-nowrap";
     const inactiveCls = "px-3 py-1.5 rounded-lg text-xs font-bold transition duration-200 text-stone-500 dark:text-stone-400 hover:text-stone-800 dark:hover:text-stone-200 whitespace-nowrap";
     Object.keys(btnIds).forEach(key => {
         const btn = document.getElementById(btnIds[key]);
@@ -899,12 +909,12 @@ window.setViewMode = function(mode) {
     const gridContainer = document.getElementById('cards-grid');
 
     if (mode === "grid") {
-        gridBtn.className = "px-3.5 py-1.5 whitespace-nowrap w-1/2 sm:w-auto rounded-lg text-xs font-bold transition duration-200 bg-white dark:bg-stone-700 text-emerald-800 dark:text-teal-400 shadow-sm flex items-center justify-center space-x-1.5";
+        gridBtn.className = "px-3.5 py-1.5 whitespace-nowrap w-1/2 sm:w-auto rounded-lg text-xs font-bold transition duration-200 bg-white dark:bg-stone-700 text-emerald-800 dark:text-emerald-400 shadow-sm flex items-center justify-center space-x-1.5";
         listBtn.className = "px-3.5 py-1.5 whitespace-nowrap w-1/2 sm:w-auto rounded-lg text-xs font-bold transition duration-200 text-stone-500 dark:text-stone-400 hover:text-stone-800 dark:hover:text-stone-200 flex items-center justify-center space-x-1.5";
         gridContainer.className = "adaptive-grid";
     } else {
         gridBtn.className = "px-3.5 py-1.5 whitespace-nowrap w-1/2 sm:w-auto rounded-lg text-xs font-bold transition duration-200 text-stone-500 dark:text-stone-400 hover:text-stone-800 dark:hover:text-stone-200 flex items-center justify-center space-x-1.5";
-        listBtn.className = "px-3.5 py-1.5 whitespace-nowrap w-1/2 sm:w-auto rounded-lg text-xs font-bold transition duration-200 bg-white dark:bg-stone-700 text-emerald-800 dark:text-teal-400 shadow-sm flex items-center justify-center space-x-1.5";
+        listBtn.className = "px-3.5 py-1.5 whitespace-nowrap w-1/2 sm:w-auto rounded-lg text-xs font-bold transition duration-200 bg-white dark:bg-stone-700 text-emerald-800 dark:text-emerald-400 shadow-sm flex items-center justify-center space-x-1.5";
         // 列表模式也吃 --card-scale：宽度由「卡片大小」滑块控制（见 style.css 的 .list-grid）
         gridContainer.className = "list-grid";
     }
@@ -936,7 +946,7 @@ function renderNotebookTabs() {
 
     container.innerHTML = names.map(name => {
         const isActive = name === activeNotebook;
-        const activeStyle = "bg-emerald-800 dark:bg-teal-700 text-white shadow-sm font-semibold";
+        const activeStyle = "bg-emerald-800 dark:bg-emerald-400/[0.12] text-white dark:text-emerald-400 border border-transparent dark:border-emerald-400/30 shadow-sm font-semibold";
         const inactiveStyle = "bg-white dark:bg-stone-800 hover:bg-stone-100/80 dark:hover:bg-stone-700 text-stone-600 dark:text-stone-400 border border-stone-200 dark:border-stone-700 hover:border-stone-300 dark:hover:border-stone-600";
 
         const reviewCount = notebooks[name].filter(c => !c.mastered).length;
@@ -961,7 +971,7 @@ function renderNotebookMenu() {
         const isActive = name === activeNotebook;
         const reviewCount = notebooks[name].filter(c => !c.mastered).length;
         return `
-            <button onclick="switchNotebookFromMenu('${name}')" class="w-full px-3 py-2 rounded-lg text-left text-xs font-semibold flex items-center justify-between gap-2 transition-colors ${isActive ? 'bg-emerald-800/[0.12] dark:bg-teal-300/[0.12] text-emerald-800 dark:text-teal-300' : 'text-stone-600 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-700'}">
+            <button onclick="switchNotebookFromMenu('${name}')" class="w-full px-3 py-2 rounded-lg text-left text-xs font-semibold flex items-center justify-between gap-2 transition-colors ${isActive ? 'bg-emerald-800/[0.12] dark:bg-emerald-400/[0.12] text-emerald-800 dark:text-emerald-400' : 'text-stone-600 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-700'}">
                 <span class="truncate">${name}</span>
                 <span class="text-[10px] opacity-60 shrink-0">${reviewCount}</span>
             </button>
@@ -1140,7 +1150,7 @@ const EXPORT_SORT_LABEL = {
 let exportSortMode = 'display';
 
 function updateExportSortButtons() {
-    const activeCls = "export-sort-btn px-2 py-1.5 rounded-lg text-[11px] font-semibold transition-colors bg-emerald-800/[0.12] dark:bg-teal-300/[0.12] text-emerald-800 dark:text-teal-300 shadow-sm";
+    const activeCls = "export-sort-btn px-2 py-1.5 rounded-lg text-[11px] font-semibold transition-colors bg-emerald-800/[0.12] dark:bg-emerald-400/[0.12] text-emerald-800 dark:text-emerald-400 shadow-sm";
     const inactiveCls = "export-sort-btn px-2 py-1.5 rounded-lg text-[11px] font-semibold transition-colors text-stone-500 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-700 hover:text-stone-800 dark:hover:text-stone-200";
     Object.keys(EXPORT_SORT_LABEL).forEach(m => {
         const el = document.getElementById('export-sort-' + m);
@@ -1638,7 +1648,7 @@ function buildCardHtml(item, isGlobalScope) {
             : '';
 
         const masterButtonHtml = `
-            <button onclick="toggleCardMastered(event, '${item.id}', '${sourceNotebook}')" class="${item.mastered ? 'text-emerald-600 dark:text-teal-400 hover:text-emerald-700 dark:hover:text-teal-300 bg-emerald-50 dark:bg-teal-900/30' : 'text-stone-300 dark:text-stone-600 hover:text-emerald-600 dark:hover:text-teal-400 hover:bg-emerald-50 dark:hover:bg-stone-700/50'} rounded-lg transition duration-150 shrink-0 flex items-center justify-center" style="padding: calc(0.375rem * var(--card-scale, 1.0));" title="${item.mastered ? '移回复习中' : '标记为已掌握'}">
+            <button onclick="toggleCardMastered(event, '${item.id}', '${sourceNotebook}')" class="${item.mastered ? 'text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 bg-emerald-50 dark:bg-emerald-900/30 dark:hover:bg-emerald-900/60' : 'text-stone-300 dark:text-stone-600 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/30'} rounded-lg transition duration-150 shrink-0 flex items-center justify-center active:scale-75" style="padding: calc(0.375rem * var(--card-scale, 1.0));" title="${item.mastered ? '移回复习中' : '标记为已掌握'}">
                 <svg class="w-4 h-4" style="width: calc(1rem * var(--card-scale, 1.0)); height: calc(1rem * var(--card-scale, 1.0));" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="${item.mastered ? '2.2' : '2.5'}" d="${item.mastered ? 'M10 19l-7-7m0 0l7-7m-7 7h18' : 'M5 13l4 4L19 7'}"></path>
                 </svg>
@@ -1646,7 +1656,7 @@ function buildCardHtml(item, isGlobalScope) {
         `;
 
         const editButtonHtml = `
-            <button onclick="openEditCardModal(event, '${item.id}', '${sourceNotebook}')" class="text-stone-300 dark:text-stone-600 hover:text-emerald-600 dark:hover:text-teal-400 hover:bg-emerald-50 dark:hover:bg-stone-700/50 rounded-lg transition duration-150 shrink-0 flex items-center justify-center" style="padding: calc(0.375rem * var(--card-scale, 1.0));" title="修改卡片内容">
+            <button onclick="openEditCardModal(event, '${item.id}', '${sourceNotebook}')" class="text-stone-300 dark:text-stone-600 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 rounded-lg transition duration-150 shrink-0 flex items-center justify-center" style="padding: calc(0.375rem * var(--card-scale, 1.0));" title="修改卡片内容">
                 <svg class="w-4 h-4" style="width: calc(1rem * var(--card-scale, 1.0)); height: calc(1rem * var(--card-scale, 1.0));" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg>
             </button>
         `;
@@ -1654,17 +1664,17 @@ function buildCardHtml(item, isGlobalScope) {
         if (layoutMode === "grid") {
             let tagsHtml = '';
             if (item.tags && item.tags.length > 0) {
-                tagsHtml = item.tags.map(tag => `<span class="px-1.5 py-0.5 bg-emerald-800/[0.12] dark:bg-teal-300/[0.12] text-emerald-800 dark:text-teal-300 rounded text-[10px] mr-1 font-medium shrink-0">${tag}</span>`).join('');
+                tagsHtml = item.tags.map(tag => `<span class="px-1.5 py-0.5 bg-emerald-800/[0.12] dark:bg-emerald-400/[0.12] text-emerald-800 dark:text-emerald-400 rounded text-[10px] mr-1 font-medium shrink-0">${tag}</span>`).join('');
             }
 
             return `
-                <div class="perspective group cursor-pointer card-scale-box" data-card-id="${item.id}" data-has-example="${item.example ? 'true' : 'false'}" onclick="flipCard(this)">
-                    <div class="card-inner relative w-full h-full rounded-2xl shadow-sm border border-stone-200/80 dark:border-stone-700/80 bg-white dark:bg-stone-800${flippedCardIds.has(item.id) ? ' is-flipped' : ''}">
+                <div class="perspective group cursor-pointer card-scale-box" data-card-id="${item.id}" data-has-example="${item.example ? 'true' : 'false'}" onclick="flipCard(this)" ontouchstart="">
+                    <div class="card-inner relative w-full h-full rounded-2xl shadow-sm border border-stone-200/80 dark:border-stone-700/80 bg-white dark:bg-stone-900${flippedCardIds.has(item.id) ? ' is-flipped' : ''}">
 
-                        <div class="card-front absolute inset-0 w-full h-full flex flex-col justify-between rounded-2xl bg-white dark:bg-stone-800 overflow-hidden" style="padding: var(--card-pad);">
+                        <div class="card-front absolute inset-0 w-full h-full flex flex-col justify-between rounded-2xl bg-white dark:bg-stone-900 overflow-hidden" style="padding: var(--card-pad);">
                             <div class="flex justify-between items-center w-full shrink-0" style="margin-bottom: var(--spacing-gap);">
                                 <div class="flex items-center gap-1.5 min-w-0">
-                                    <span class="tracking-widest text-stone-300 dark:text-stone-600 font-mono font-bold" style="font-size: var(--fs-tiny);">FRONT</span>
+                                    <span class="tracking-widest text-emerald-800/50 dark:text-emerald-400/60 font-mono font-bold" style="font-size: var(--fs-tiny);">FRONT</span>
                                     ${notebookBadgeHtml}
                                 </div>
                                 <div class="flex items-center space-x-1">
@@ -1680,14 +1690,14 @@ function buildCardHtml(item, isGlobalScope) {
                             </div>
 
                             <div class="text-center shrink-0" style="margin-top: var(--spacing-gap);">
-                                <span class="text-emerald-800/60 dark:text-teal-600/80 group-hover:text-emerald-800 dark:group-hover:text-teal-500 duration-200 font-medium" style="font-size: var(--fs-small);">点击翻面 →</span>
+                                <span class="text-emerald-800/60 dark:text-emerald-400/60 group-hover:text-emerald-800 dark:group-hover:text-emerald-400 duration-200 font-medium" style="font-size: var(--fs-small);">点击翻面 →</span>
                             </div>
                         </div>
 
-                        <div class="card-back absolute inset-0 w-full h-full flex flex-col justify-between rounded-2xl bg-[#faf9f4] dark:bg-[#201d1c] border border-stone-200/50 dark:border-stone-700/50 overflow-hidden" style="padding: var(--card-pad);">
+                        <div class="card-back absolute inset-0 w-full h-full flex flex-col justify-between rounded-2xl bg-[#faf9f4] dark:bg-stone-900 border border-stone-200/50 dark:border-stone-700/50 overflow-hidden" style="padding: var(--card-pad);">
                             <div class="flex justify-between items-center w-full shrink-0" style="margin-bottom: var(--spacing-gap);">
                                 <div class="flex items-center gap-1.5 min-w-0 shrink-0">
-                                    <span class="tracking-widest text-emerald-800/40 dark:text-teal-600/40 font-mono font-bold flex items-center" style="font-size: var(--fs-tiny);">
+                                    <span class="tracking-widest text-emerald-800/50 dark:text-emerald-400/60 font-mono font-bold flex items-center" style="font-size: var(--fs-tiny);">
                                         BACK
                                     </span>
                                     ${notebookBadgeHtml}
@@ -1706,7 +1716,7 @@ function buildCardHtml(item, isGlobalScope) {
                                             <h3 class="font-japanese font-medium text-stone-900 dark:text-stone-100 leading-normal inline-block" lang="ja" style="font-size: var(--fs-sub);">${rubyBack}</h3>
                                         </div>
                                         <div class="text-center">
-                                            <p class="text-stone-700 dark:text-stone-300 bg-stone-200/40 dark:bg-stone-700/50 rounded-lg inline-block max-w-full font-semibold" style="font-size: var(--fs-text); padding: calc(0.375rem * var(--card-scale, 1.0)) calc(0.75rem * var(--card-scale, 1.0));">${item.meaning}</p>
+                                            <p class="text-stone-700 dark:text-stone-300 bg-stone-200/40 dark:bg-stone-800/40 rounded-lg inline-block max-w-full font-semibold" style="font-size: var(--fs-text); padding: calc(0.375rem * var(--card-scale, 1.0)) calc(0.75rem * var(--card-scale, 1.0));">${item.meaning}</p>
                                         </div>
                                         ${item.example ? formatExample(item.example) : ''}
                                     </div>
@@ -1719,14 +1729,14 @@ function buildCardHtml(item, isGlobalScope) {
         } else {
             let tagsHtmlList = '';
             if (item.tags && item.tags.length > 0) {
-                tagsHtmlList = item.tags.map(tag => `<span class="px-1.5 py-0.5 bg-emerald-800/[0.12] dark:bg-teal-300/[0.12] text-emerald-800 dark:text-teal-300 rounded text-[10px] font-medium">${tag}</span>`).join('');
+                tagsHtmlList = item.tags.map(tag => `<span class="px-1.5 py-0.5 bg-emerald-800/[0.12] dark:bg-emerald-400/[0.12] text-emerald-800 dark:text-emerald-400 rounded text-[10px] font-medium">${tag}</span>`).join('');
             }
 
             return `
-                <div data-card-id="${item.id}" class="bg-white dark:bg-stone-800 border border-stone-200/80 dark:border-stone-700/80 rounded-xl shadow-sm hover:border-emerald-600/20 dark:hover:border-teal-600/30 transition-all duration-200 overflow-hidden cursor-pointer" onclick="toggleListExpand(this)">
-                    <div class="list-row-main px-4 flex justify-between items-center gap-3 bg-white dark:bg-stone-800 hover:bg-stone-50/50 dark:hover:bg-stone-800/80 transition-colors">
+                <div data-card-id="${item.id}" class="bg-white dark:bg-stone-900 border border-stone-200/80 dark:border-stone-700/80 rounded-xl shadow-sm transition-all duration-200 overflow-hidden cursor-pointer card-press" onclick="toggleListExpand(this)" ontouchstart="">
+                    <div class="list-row-main px-4 flex justify-between items-center gap-3 bg-white dark:bg-stone-900 hover:bg-stone-50/50 dark:hover:bg-stone-800 transition-colors">
                         <div class="flex items-center flex-1 min-w-0 flex-wrap gap-x-3 gap-y-1">
-                            <span class="w-1.5 h-1.5 bg-emerald-800 dark:bg-teal-500 rounded-full transition-colors shrink-0"></span>
+                            <span class="w-1.5 h-1.5 bg-emerald-800 dark:bg-emerald-400 rounded-full transition-colors shrink-0"></span>
                             <span class="list-row-word font-japanese text-base font-semibold text-stone-800 dark:text-stone-200 tracking-wide transition-colors" lang="ja">${cleanWordFront}</span>
                             ${isGlobalScope ? `<span class="text-[10px] text-stone-500 dark:text-stone-300 bg-stone-100 dark:bg-stone-700/60 px-1.5 py-0.5 rounded-md shrink-0">${sourceNotebook} · ${item.mastered ? '已掌握' : '复习中'}</span>` : ''}
                             ${tagsHtmlList ? `<div class="flex flex-wrap gap-1 min-w-0">${tagsHtmlList}</div>` : ''}
@@ -1740,7 +1750,7 @@ function buildCardHtml(item, isGlobalScope) {
                         </div>
                     </div>
 
-                    <div class="list-expand-area hidden border-t border-stone-100 dark:border-stone-700/50 bg-[#faf9f4]/80 dark:bg-stone-800/50 px-4 space-y-4 transition-colors">
+                    <div class="list-expand-area hidden border-t border-stone-100 dark:border-stone-700/50 bg-[#faf9f4]/80 dark:bg-transparent px-4 space-y-4 transition-colors">
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
                             <div class="flex items-center space-x-2">
                                 <span class="text-xs font-bold text-stone-400 dark:text-stone-500 uppercase tracking-wider shrink-0 transition-colors">读音:</span>
@@ -1748,7 +1758,7 @@ function buildCardHtml(item, isGlobalScope) {
                             </div>
                             <div class="flex items-center space-x-2">
                                 <span class="text-xs font-bold text-stone-400 dark:text-stone-500 uppercase tracking-wider shrink-0 transition-colors">释义:</span>
-                                <span class="text-stone-800 dark:text-stone-200 font-semibold px-2.5 py-1 bg-stone-200/40 dark:bg-stone-700/50 rounded-lg inline-block transition-colors">${item.meaning}</span>
+                                <span class="text-stone-800 dark:text-stone-200 font-semibold px-2.5 py-1 bg-stone-200/40 dark:bg-stone-800/40 rounded-lg inline-block transition-colors">${item.meaning}</span>
                             </div>
                         </div>
                         ${item.example ? formatExample(item.example) : ''}
@@ -1941,9 +1951,9 @@ function renderEditTags() {
     const container = document.getElementById('edit-tags-container');
     // 已选中标签统一颜色，与主界面对齐
     container.innerHTML = currentEditTags.map((tag, index) => `
-        <span class="inline-flex items-center gap-1 px-2 py-1 bg-emerald-800/[0.12] dark:bg-teal-300/[0.12] text-emerald-800 dark:text-teal-300 rounded text-xs font-medium">
+        <span class="inline-flex items-center gap-1 px-2 py-1 bg-emerald-800/[0.12] dark:bg-emerald-400/[0.12] text-emerald-800 dark:text-emerald-400 rounded text-xs font-medium">
             ${tag}
-            <button type="button" onclick="removeEditTag(${index})" class="hover:text-emerald-950 dark:hover:text-teal-100 focus:outline-none ml-0.5">&times;</button>
+            <button type="button" onclick="removeEditTag(${index})" class="hover:text-emerald-950 dark:hover:text-emerald-100 focus:outline-none ml-0.5">&times;</button>
         </span>
     `).join('');
     renderEditTagSuggestions();
@@ -2231,35 +2241,43 @@ window.toggleCardMastered = function(event, cardId, notebookName = activeNoteboo
 
     const currentList = notebooks[notebookName] || [];
     const card = currentList.find(c => c.id === cardId);
+    if (!card) return;
 
-    if (card) {
-        const oldStatus = card.mastered;
-        if (!oldStatus) {
-            playCrispClick();              // 放入「已掌握」时清脆一声
-            spawnMasteredPop(event.clientX, event.clientY); // 视觉奖励（iPhone 震动替补）
-            // 安卓震动（双脉冲对应「叮—咚」）；iPhone 不支持 navigator.vibrate，静默跳过。受静音开关控制。
-            if (soundEnabled && navigator.vibrate) navigator.vibrate([18, 40, 26]);
-        }
-        card.mastered = !card.mastered;
-        if (card.mastered) card.masteredAt = Date.now(); // 记录掌握时间，用于已掌握视图按时间倒序
-        saveData();
+    const oldStatus = card.mastered;
+    if (!oldStatus) {
+        playCrispClick();              // 放入「已掌握」时清脆一声
+        spawnMasteredPop(event.clientX, event.clientY); // 视觉奖励（iPhone 震动替补）
+        // 安卓震动（双脉冲对应「叮—咚」）；iPhone 不支持 navigator.vibrate，静默跳过。受静音开关控制。
+        if (soundEnabled && navigator.vibrate) navigator.vibrate([18, 40, 26]);
+    }
+
+    // 数据立即变更并落盘：把 renderCards() 延后到离场动画之后即可，
+    // 但状态要先改——否则动画的 230ms 窗口内二次点击会看到 oldStatus 仍为 false，
+    // 触发两次定时器把卡片「掌握↔未掌握」来回翻，净效果丢失且声音/浮层重复。
+    card.mastered = !card.mastered;
+    if (card.mastered) card.masteredAt = Date.now(); // 记录掌握时间，用于已掌握视图按时间倒序
+    saveData();
+
+    // 仅当卡片即将「离开当前视图」时才播离场动画：
+    // 复习中→已掌握（离开复习中），或 已掌握→复习中（离开已掌握）。「全部」视图内只是徽章变化，不播。
+    const leavingView = (cardFilter === 'review' && !oldStatus) || (cardFilter === 'mastered' && oldStatus);
+    const cardEl = leavingView
+        ? document.querySelector('[data-card-id="' + (window.CSS && CSS.escape ? CSS.escape(cardId) : cardId) + '"]')
+        : null;
+
+    if (cardEl) {
+        cardEl.style.pointerEvents = 'none'; // 动画期间禁止再次点击，杜绝重入
+        cardEl.style.transition = 'transform 0.25s cubic-bezier(0.42,0,0.58,1), opacity 0.25s cubic-bezier(0.42,0,0.58,1)';
+        void cardEl.offsetWidth; // 强制回流，确保 transition 从当前态平滑起步
+        cardEl.style.transform = 'scale(0.85) translateY(10px)';
+        cardEl.style.opacity = '0';
+        setTimeout(() => {
+            renderCards();
+            renderNotebookTabs();
+        }, 230);
+    } else {
         renderCards();
         renderNotebookTabs();
-
-        lastMasteredCardId = cardId;
-
-        const statusMessage = oldStatus ? "已重新移回【复习中】单词册" : "已归档到【已掌握】归档库！";
-        showToast(statusMessage, () => {
-            const list = notebooks[notebookName] || [];
-            const found = list.find(c => c.id === lastMasteredCardId);
-            if (found) {
-                found.mastered = oldStatus;
-                saveData();
-                renderCards();
-                renderNotebookTabs();
-                showToast("撤销操作成功！");
-            }
-        });
     }
 }
 
@@ -2360,7 +2378,7 @@ window.switchBatchTab = function(tab) {
     const jsonPane = document.getElementById('batch-pane-json');
     const aiTab = document.getElementById('batch-tab-ai');
     const jsonTab = document.getElementById('batch-tab-json');
-    const activeCls = ['bg-white', 'dark:bg-stone-700', 'text-emerald-800', 'dark:text-teal-400', 'shadow-sm'];
+    const activeCls = ['bg-white', 'dark:bg-stone-700', 'text-emerald-800', 'dark:text-emerald-400', 'shadow-sm'];
     const inactiveCls = ['text-stone-500', 'dark:text-stone-400'];
 
     const showAi = (tab === 'ai');
@@ -2718,7 +2736,7 @@ window.submitBatchImport = async function() {
     } finally {
         btn.disabled = false;
         btnSpinner.classList.add('hidden');
-        btnText.innerText = "✨ 提取并生成卡片";
+        btnText.innerText = "提取并生成卡片";
     }
 }
 
@@ -2852,151 +2870,16 @@ window.autoLookupWord = async function(isEdit = false) {
     }
 }
 
-function initIndexedDB() {
-    const request = indexedDB.open("OfflineDictDB", 1);
-
-    request.onerror = function() {
-        document.getElementById('dict-db-status').innerHTML = "⚠️ 本地数据库加载失败";
-    };
-
-    request.onsuccess = function(e) {
-        db = e.target.result;
-        checkDictionaryEmpty();
-    };
-
-    request.onupgradeneeded = function(e) {
-        const activeDb = e.target.result;
-        const store = activeDb.createObjectStore("dictionary", { keyPath: "word" });
-        store.createIndex("kana", "kana", { unique: false });
-        store.createIndex("meaning", "meaning", { unique: false });
-    };
-}
-
-function checkDictionaryEmpty() {
-    const tx = db.transaction("dictionary", "readonly");
-    const store = tx.objectStore("dictionary");
-    const countRequest = store.count();
-
-    countRequest.onsuccess = function() {
-        if (countRequest.result === 0) {
-            importDictionaryData(preloadedDictionary, true);
-        } else {
-            updateDictStatusLabel(countRequest.result);
-        }
-    };
-}
-
-function updateDictStatusLabel(count) {
-    const label = document.getElementById('dict-db-status');
-    label.innerHTML = `🟢 已加载 ${count} 个本地核心词`;
-}
-
-function importDictionaryData(dataArray, silent = false) {
-    const tx = db.transaction("dictionary", "readwrite");
-    const store = tx.objectStore("dictionary");
-
-    let successCount = 0;
-    dataArray.forEach(item => {
-        if (item.word && (item.kana || item.meaning)) {
-            store.put({
-                word: item.word.trim(),
-                kana: (item.kana || "").trim(),
-                meaning: (item.meaning || "").trim()
-            });
-            successCount++;
-        }
-    });
-
-    tx.oncomplete = function() {
-        const countTx = db.transaction("dictionary", "readonly");
-        const countStore = countTx.objectStore("dictionary");
-        const req = countStore.count();
-        req.onsuccess = function() {
-            updateDictStatusLabel(req.result);
-        };
-    };
-}
-
-window.searchDictionary = function() {
-    const searchVal = document.getElementById('dict-search-input').value.trim().toLowerCase();
-    const resultsBox = document.getElementById('dict-results');
-
-    if (!searchVal) {
-        resultsBox.innerHTML = '';
-        resultsBox.classList.add('hidden');
-        return;
-    }
-
-    const tx = db.transaction("dictionary", "readonly");
-    const store = tx.objectStore("dictionary");
-    const cursorRequest = store.openCursor();
-
-    let matched = [];
-
-    cursorRequest.onsuccess = function(e) {
-        const cursor = e.target.result;
-        if (cursor) {
-            const item = cursor.value;
-            const w = item.word.toLowerCase();
-            const k = item.kana.toLowerCase();
-            const m = item.meaning.toLowerCase();
-
-            if (w.includes(searchVal) || k.includes(searchVal) || m.includes(searchVal)) {
-                matched.push(item);
-            }
-
-            if (matched.length < 20) {
-                cursor.continue();
-            } else {
-                renderDictResults(matched);
-            }
-        } else {
-            renderDictResults(matched);
-        }
-    };
-}
-
-function renderDictResults(results) {
-    const resultsBox = document.getElementById('dict-results');
-    resultsBox.classList.remove('hidden');
-
-    if (results.length === 0) {
-        resultsBox.innerHTML = `
-            <div class="p-3 text-center text-xs text-stone-400 bg-stone-50 dark:bg-stone-900 rounded-xl border border-dashed border-stone-200 dark:border-stone-700 transition-colors">
-                未在本地离线词典中检索到该词。试用下方“网页词典”联查吧
-            </div>
-        `;
-        return;
-    }
-
-    resultsBox.innerHTML = results.map(item => {
-        return `
-            <div onclick="fillFromDictionary('${item.word}', '${item.kana}', '${item.meaning}')" class="p-3 bg-stone-50 dark:bg-stone-800 hover:bg-amber-500/5 dark:hover:bg-stone-700 border border-stone-200/80 dark:border-stone-700 hover:border-amber-500/30 dark:hover:border-stone-600 rounded-xl cursor-pointer transition-colors text-left group">
-                <div class="flex justify-between items-start">
-                    <span class="font-japanese text-sm font-semibold text-stone-800 dark:text-stone-200 group-hover:text-amber-900 dark:group-hover:text-amber-500 transition-colors" lang="ja">${item.word}</span>
-                    <span class="font-japanese text-[11px] text-stone-400 dark:text-stone-500 transition-colors" lang="ja">${item.kana}</span>
-                </div>
-                <p class="text-xs text-stone-500 dark:text-stone-400 mt-1 truncate transition-colors">${item.meaning}</p>
-            </div>
-        `;
-    }).join('');
-}
-
-window.fillFromDictionary = function(word, kana, meaning) {
-    document.getElementById('input-word').value = word;
-    document.getElementById('input-kana').value = kana;
-    document.getElementById('input-meaning').value = meaning;
-
-    document.getElementById('input-word').focus();
-    showToast("已为你将词典结果一键填入上方添加表单！");
-}
-
+// ==========================================
+// 🔍 外部在线词典联查（带词跳转新标签页，不依赖本地词库）
+// ==========================================
 window.openExternalSearch = function(site) {
-    const query = document.getElementById('dict-search-input').value.trim() || document.getElementById('input-word').value.trim();
+    const query = (document.getElementById('ext-dict-input').value.trim() || document.getElementById('input-word').value.trim()).trim();
     if (!query) {
-        showToast("请先在上方输入框中写下查询的单词本体！");
+        showToast("请先输入要查询的单词本体！");
         return;
     }
+    // 去掉 ruby 注音括号，只留单词本体（兼容添加表单里的 単語[たんご] 写法）
     const cleanQuery = query.replace(/([^\s\[\]]+)\[([^\]]+)\]/g, '$1');
 
     let url = "";
@@ -3011,23 +2894,35 @@ window.openExternalSearch = function(site) {
     window.open(url, '_blank');
 }
 
-window.toggleDictionaryDrawer = function() {
-    const drawer = document.getElementById('dict-drawer');
+window.openExtDictModal = function() {
+    // 预填添加表单里已输入的单词，省得重复打一遍
+    const wordVal = document.getElementById('input-word').value.trim();
+    if (wordVal) document.getElementById('ext-dict-input').value = wordVal;
+    const drawer = document.getElementById('ext-dict-modal');
     if (drawer.classList.contains('hidden')) {
         drawer.classList.remove('hidden');
         setTimeout(() => {
             drawer.classList.remove('translate-x-full');
         }, 50);
-    } else {
-        drawer.classList.add('translate-x-full');
-        setTimeout(() => {
-            drawer.classList.add('hidden');
-        }, 300);
     }
+    document.getElementById('ext-dict-input').focus();
+}
+
+window.closeExtDictModal = function() {
+    const drawer = document.getElementById('ext-dict-modal');
+    drawer.classList.add('translate-x-full');
+    setTimeout(() => {
+        drawer.classList.add('hidden');
+    }, 300);
 }
 
 window.openCloudSyncModal = function() {
     const drawer = document.getElementById('cloud-drawer');
+    // 与 AI 设置弹窗保持一致：每次打开都从 localStorage 回填凭证
+    const savedToken = localStorage.getItem('gist_token');
+    const savedGistId = localStorage.getItem('gist_id');
+    if (savedToken) document.getElementById('gist-token').value = savedToken;
+    if (savedGistId) document.getElementById('gist-id').value = savedGistId;
     if (drawer.classList.contains('hidden')) {
         drawer.classList.remove('hidden');
         setTimeout(() => {
@@ -3047,26 +2942,38 @@ window.closeCloudSyncModal = function() {
 function updateSyncStatus(msg, isError = false) {
     const statusEl = document.getElementById('sync-status');
     statusEl.innerText = msg;
-    statusEl.className = `text-center text-xs font-semibold py-2 ${isError ? 'text-danger-600 dark:text-danger-400' : 'text-emerald-600 dark:text-teal-500'}`;
+    statusEl.className = `text-center text-xs font-semibold py-2 ${isError ? 'text-danger-600 dark:text-danger-400' : 'text-emerald-600 dark:text-emerald-400'}`;
 }
 
-window.syncToCloud = async function() {
-    const token = document.getElementById('gist-token').value.trim();
-    let gistId = document.getElementById('gist-id').value.trim();
+// isAuto: 自动触发（防抖到点 / 页面关闭抢救），静默运行不打扰用户
+// isFlush: 页面关闭抢救模式，启用 keepalive 让请求在页面销毁后仍有机会送达
+window.syncToCloud = async function(isAuto = false, isFlush = false) {
+    // 凭证读取：输入框优先（用户改动能立即生效），localStorage 兜底
+    const token = document.getElementById('gist-token').value.trim() || localStorage.getItem('gist_token') || '';
+    let gistId = document.getElementById('gist-id').value.trim() || localStorage.getItem('gist_id') || '';
     const btn = document.getElementById('btn-sync-up');
 
     if (!token) {
-        updateSyncStatus("❌ 错误：请先输入您的 GitHub Token", true);
+        if (!isAuto) updateSyncStatus("❌ 错误：请先输入您的 GitHub Token", true);
         return;
     }
 
-    btn.disabled = true;
-    btn.innerHTML = `<span class="animate-spin mr-2">🌀</span>正在加密打包上传...`;
-    updateSyncStatus("📡 正在连接 GitHub 服务器...");
+    if (syncInFlight) {
+        if (!isAuto) updateSyncStatus("⏳ 正在同步中，请稍候...", false);
+        return;
+    }
+    syncInFlight = true;
 
+    if (!isAuto && btn) {
+        btn.disabled = true;
+        btn.innerHTML = `<span class="animate-spin mr-2">🌀</span>正在加密打包上传...`;
+        updateSyncStatus("📡 正在连接 GitHub 服务器...");
+    }
+
+    const currentTime = new Date().toISOString();
     const payloadContent = JSON.stringify({
         version: "1.0",
-        lastSync: new Date().toISOString(),
+        lastSync: currentTime,
         notebooks: notebooks,
         // 标签的自定义顺序（老备份没有这个字段，恢复时按"未排序"处理即可）
         tagOrder: tagOrder || []
@@ -3086,9 +2993,51 @@ window.syncToCloud = async function() {
         let url = 'https://api.github.com/gists';
         let method = 'POST';
 
+        // 🛡️ 防呆：已绑定 Gist 时，先拉取云端数据比对，再决定是否覆盖
         if (gistId) {
             url = `https://api.github.com/gists/${gistId}`;
             method = 'PATCH';
+
+            const checkRes = await fetch(url, {
+                headers: {
+                    'Accept': 'application/vnd.github.v3+json',
+                    'Authorization': `token ${token}`
+                }
+            });
+
+            if (checkRes.ok) {
+                const cloudData = await checkRes.json();
+                const fileObj = cloudData.files && cloudData.files["japanese_vocab_backup.json"];
+                if (fileObj && fileObj.content) {
+                    const parsedCloud = JSON.parse(fileObj.content);
+
+                    // 防呆 1：云端比本机新 → 拦截，防止误覆盖别的设备传过的数据
+                    if (parsedCloud.lastSync && localLastSync && new Date(parsedCloud.lastSync) > new Date(localLastSync)) {
+                        throw new Error("云端数据比本机更新！请先从云端拉取最新进度，以免误覆盖。");
+                    }
+
+                    // 防呆 2：本机卡片数不足云端一半 → 疑似数据丢失。
+                    // 自动模式直接拦截；手动模式弹确认框，允许"故意大量删卡"的用户放行
+                    let cloudCount = 0;
+                    Object.values(parsedCloud.notebooks || {}).forEach(list => cloudCount += (list || []).length);
+                    const localCount = getAllCardIds().length;
+                    if (cloudCount > 0 && localCount < cloudCount * 0.5) {
+                        if (isAuto) {
+                            throw new Error(`本机单词量(${localCount})远低于云端(${cloudCount})，疑似数据丢失，已拦截上传保护云端数据！`);
+                        }
+                        if (!confirm(`⚠️ 本机单词量(${localCount})远低于云端(${cloudCount})。\n\n如果这是你故意大量删卡，点"确定"继续上传；否则请点"取消"，先执行"从云端拉取并恢复本地"！`)) {
+                            throw new Error("已取消上传（数据量异常保护）");
+                        }
+                    }
+                }
+            }
+        }
+
+        // keepalive 仅在页面关闭抢救时启用；body 超过约 60KB 时浏览器会直接拒绝，降级为普通请求
+        const payloadBytes = new TextEncoder().encode(payloadContent).length;
+        const useKeepalive = isFlush && payloadBytes < 60000;
+        if (isFlush && !useKeepalive) {
+            console.warn(`[云同步] 备份体积 ${payloadBytes} 字节超过 keepalive 上限，降级为普通请求，页面关闭时可能发送失败`);
         }
 
         const response = await fetch(url, {
@@ -3097,7 +3046,8 @@ window.syncToCloud = async function() {
                 'Accept': 'application/vnd.github.v3+json',
                 'Authorization': `token ${token}`
             },
-            body: JSON.stringify(payload)
+            body: JSON.stringify(payload),
+            keepalive: useKeepalive
         });
 
         if (!response.ok) {
@@ -3106,30 +3056,43 @@ window.syncToCloud = async function() {
             throw new Error(`请求失败 (状态码: ${response.status})`);
         }
 
-        const data = await response.json();
-
-        if (!gistId) {
-            document.getElementById('gist-id').value = data.id;
-            gistId = data.id;
+        if (isFlush) {
+            // 抢救模式不解析响应体：keepalive 响应在页面关闭时不可靠，按成功推进锚点即可
+        } else {
+            const data = await response.json();
+            if (!gistId) {
+                gistId = data.id;
+                document.getElementById('gist-id').value = data.id;
+            }
         }
 
         localStorage.setItem('gist_token', token);
         localStorage.setItem('gist_id', gistId);
 
-        updateSyncStatus(`✅ 同步成功！(云端房间号: ${gistId})`);
-        showToast("🎉 数据已安全覆盖并上传至 GitHub 云端！");
+        // 更新本机的"云端最后同步时间"锚点：防呆 1 与后续自动上传都依赖它
+        localLastSync = currentTime;
+        localStorage.setItem('japanese_vocab_last_sync', localLastSync);
 
+        if (!isAuto) {
+            updateSyncStatus(`✅ 同步成功！(云端房间号: ${gistId})`);
+            showToast("🎉 数据已安全覆盖并上传至 GitHub 云端！");
+        }
     } catch (err) {
-        updateSyncStatus(`❌ 上传失败: ${err.message}`, true);
+        if (!isAuto) updateSyncStatus(`❌ 上传失败: ${err.message}`, true);
+        if (isAuto && !isFlush) showToast(`⚠️ 自动上传未完成: ${err.message}`);
+        if (isFlush) console.warn('[云同步] 页面关闭抢救同步失败:', err.message);
     } finally {
-        btn.disabled = false;
-        btn.innerHTML = `<svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg><span> ⬆️ 上传并覆盖至云端</span>`;
+        syncInFlight = false;
+        if (!isAuto && btn) {
+            btn.disabled = false;
+            btn.innerHTML = `<svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg><span>上传并覆盖至云端</span>`;
+        }
     }
 }
 
 window.syncFromCloud = async function() {
-    const token = document.getElementById('gist-token').value.trim();
-    const gistId = document.getElementById('gist-id').value.trim();
+    const token = document.getElementById('gist-token').value.trim() || localStorage.getItem('gist_token') || '';
+    const gistId = document.getElementById('gist-id').value.trim() || localStorage.getItem('gist_id') || '';
     const btn = document.getElementById('btn-sync-down');
 
     if (!token || !gistId) {
@@ -3175,13 +3138,18 @@ window.syncFromCloud = async function() {
                 tagOrder = parsedData.tagOrder;
                 saveTagOrder();
             }
-            saveData();
+            saveData(true); // 跳过自动上传防抖：刚拉取下来的数据不需要再传回云端
             renderNotebookTabs();
             renderGlobalTags();
             renderCards();
 
             localStorage.setItem('gist_token', token);
             localStorage.setItem('gist_id', gistId);
+
+            // 拉取成功后更新锚点：否则本机的"最后同步时间"停留在过去，
+            // 之后任何上传都会被防呆 1 误拦（云端时间 > 本机锚点）
+            localLastSync = parsedData.lastSync || new Date().toISOString();
+            localStorage.setItem('japanese_vocab_last_sync', localLastSync);
 
             updateSyncStatus(`✅ 数据恢复成功！(最后云端同步时间: ${new Date(parsedData.lastSync).toLocaleString()})`);
             showToast("🎉 数据已从云端拉取，本地卡片库已全面更新！");
@@ -3193,7 +3161,7 @@ window.syncFromCloud = async function() {
         updateSyncStatus(`❌ 拉取失败: ${err.message}`, true);
     } finally {
         btn.disabled = false;
-        btn.innerHTML = `<svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg><span>⬇️ 从云端拉取并恢复本地</span>`;
+        btn.innerHTML = `<svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg><span>从云端拉取并恢复本地</span>`;
     }
 }
 
@@ -3744,4 +3712,50 @@ if (document.fonts && document.fonts.ready) {
 
 // 初始化点击音效开关图标（依据 localStorage 中的 sound_enabled）
 updateSoundIcon();
+
+// ==========================================
+// 📡 云同步自动上传（Gemini 方案第 1、2 组，经安全修订）
+//    - 停止操作 5 分钟后自动上传（saveData 内的防抖触发）
+//    - 页面切走 / 关闭时抢救未上传的进度（keepalive 请求）
+//    刻意未启用"切回页面自动拉取"：那会覆盖本地未上传的修改，
+//    跨设备更新请手动点"从云端拉取并恢复本地"。
+// ==========================================
+function flushPendingAutoSync() {
+    const token = localStorage.getItem('gist_token');
+    const gistId = localStorage.getItem('gist_id');
+    if (!token || !gistId) return;
+    if (!autoSyncTimer) return; // 没有待上传的改动，无需抢救
+
+    clearTimeout(autoSyncTimer);
+    autoSyncTimer = null;
+    // 抢救性同步：keepalive 保证页面关闭后请求仍有机会送达
+    syncToCloud(true, true);
+}
+// visibilitychange 的 hidden 在桌面 / 安卓可靠；iOS Safari 关页面时不保证触发，补 pagehide 双保险
+document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') flushPendingAutoSync();
+});
+window.addEventListener('pagehide', flushPendingAutoSync);
+
+// ==========================================
+// 🎵 Web Audio 静默预热机制 (消除首次发声延迟)
+// ==========================================
+function prewarmAudio() {
+    // 如果开了音效开关，就在用户的首次任意交互时，静默把底层硬件资源申请好
+    if (soundEnabled) {
+        const ctx = getAudioCtx();
+        // 播放一个极短且无声的假信号，强制音频管道彻底打通
+        if (ctx && ctx.state === 'running') {
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            gain.gain.value = 0;
+            osc.connect(gain).connect(ctx.destination);
+            osc.start(ctx.currentTime);
+            osc.stop(ctx.currentTime + 0.01);
+        }
+    }
+}
+// 绑定只需触发一次的全局交互事件
+document.addEventListener('pointerdown', prewarmAudio, { once: true, passive: true });
+document.addEventListener('keydown', prewarmAudio, { once: true, passive: true });
 
