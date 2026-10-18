@@ -957,32 +957,24 @@ function onTagDragPointerMove(e) {
     }
 
     s.ghost.style.transform = 'translate3d(' + (e.clientX - s.startX) + 'px,' + (e.clientY - s.startY) + 'px,0)';
-    // 用被拖动标签的中心判断目标，避免手指/鼠标停在标签边缘时要拖过很远才换位。
-    const centerX = s.rect.left + (e.clientX - s.startX) + s.rect.width / 2;
-    const centerY = s.rect.top + (e.clientY - s.startY) + s.rect.height / 2;
+    // 标签按指针位置找目标并越过目标中线后才换位；拖动边缘时不会过早触发。
     const candidates = Array.from(s.container.querySelectorAll('.tag-sort-item')).filter(el => el !== s.el);
     if (!candidates.length) return;
     let target = null, bestDistance = Infinity;
     candidates.forEach(el => {
         const r = el.getBoundingClientRect();
-        const dx = centerX - (r.left + r.width / 2);
-        const dy = centerY - (r.top + r.height / 2);
+        const dx = e.clientX - (r.left + r.width / 2);
+        const dy = e.clientY - (r.top + r.height / 2);
         const distance = dx * dx + dy * dy;
         if (distance < bestDistance) { bestDistance = distance; target = el; }
     });
     if (!target) return;
     const r = target.getBoundingClientRect();
-    const sameRow = centerY >= r.top && centerY <= r.bottom;
+    const sameRow = e.clientY >= r.top && e.clientY <= r.bottom;
     const position = sameRow
-        ? (centerX - r.left) / Math.max(1, r.width)
-        : (centerY - r.top) / Math.max(1, r.height);
-    let after;
-    if (s.overEl === target) {
-        // 35% / 65% 两条边界形成小缓冲带，标签在边界附近不会来回抖动。
-        after = s.overAfter ? position > 0.35 : position >= 0.65;
-    } else {
-        after = position >= 0.5;
-    }
+        ? (e.clientX - r.left) / Math.max(1, r.width)
+        : (e.clientY - r.top) / Math.max(1, r.height);
+    const after = position >= 0.5;
     if (s.overEl === target && s.overAfter === after) return;
     s.overEl = target;
     s.overAfter = after;
@@ -1637,17 +1629,15 @@ function onCardDragPointerMove(e) {
     flipInsertBefore(s.grid, s.el, after ? over.nextSibling : over);
 }
 
-// FLIP：先量旧位置 → 移动节点 → 用 transform 把每张卡"拉回"旧位置 → 下一帧归零，
-// 于是让位过程就是一段平滑动画。卡片太多时直接跳过动画（拖动流畅度优先）。
+// FLIP：从元素当前的可见位置开始计算新动画，避免快速连续换位时先跳回旧位置造成闪动。
+// 卡片太多时直接跳过动画（拖动流畅度优先）。
 function flipInsertBefore(grid, el, refNode) {
     const items = Array.prototype.slice.call(grid.children);
     const animate = items.length <= DRAG_FLIP_MAX_ITEMS;
-    let before = null;
-
+    const before = animate ? items.map(c => c.getBoundingClientRect()) : null;
     if (animate) {
-        // 先复位：上一次动画可能还没跑完，残留的 transform 会让"起始位置"量错
+        // 先停掉上一段 FLIP。上面已经记录了屏幕上的当前位置，重排不会发生视觉跳变。
         items.forEach(c => { c.style.transition = 'none'; c.style.transform = ''; });
-        before = items.map(c => c.getBoundingClientRect());
     }
 
     grid.insertBefore(el, refNode);
