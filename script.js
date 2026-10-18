@@ -5,10 +5,10 @@ function toggleDarkMode() {
     const html = document.documentElement;
     if (html.classList.contains('dark')) {
         html.classList.remove('dark');
-        localStorage.theme = 'light';
+        try { localStorage.theme = 'light'; } catch (err) { /* 无法记住偏好时，当前页面仍可切换 */ }
     } else {
         html.classList.add('dark');
-        localStorage.theme = 'dark';
+        try { localStorage.theme = 'dark'; } catch (err) { /* 无法记住偏好时，当前页面仍可切换 */ }
     }
 }
 
@@ -21,6 +21,14 @@ const defaultNotebooks = {
             kana: "ひるごはん",
             meaning: "午饭",
             example: "昼ご飯を食べると、眠くなる。(我一吃午饭就犯困。)",
+            mastered: false
+        },
+        {
+            id: "2",
+            word: "木漏[こも]れ日[び]",
+            kana: "こもれび",
+            meaning: "透过枝叶间隙漏进的阳光",
+            example: "公園のベンチで木漏れ日を浴びながら、お弁当を食べました。（在公园的长椅上一边沐浴穿透树叶的阳光，一边吃便当。）",
             mastered: false
         },
         {
@@ -54,14 +62,26 @@ const defaultNotebooks = {
 
 let notebooks = {};
 let activeNotebook = "日常";
+let localSaveFailed = false;
+let corruptLocalData = null;
+let corruptLocalDataKey = null;
+let corruptDataDownloaded = false;
 let cardFilter = "review"; // "review" (复习中) / "mastered" (已掌握) / "all" (全部)
 let activeTagFilters = []; // 当前选中的全局标签
 
-// --- 云同步自动化控制变量 ---
-let autoSyncTimer = null;   // 5 分钟防抖自动上传计时器
-let syncInFlight = false;   // 同步进行中锁，防止并发上传互相覆盖
-// 本机的"云端最后同步时间"锚点：上传防呆与自动上传都依赖它判断云端是否更新
-let localLastSync = localStorage.getItem('japanese_vocab_last_sync') || null;
+function safeStorageGet(key, fallback = null) {
+    try {
+        const value = localStorage.getItem(key);
+        return value === null ? fallback : value;
+    } catch (err) {
+        return fallback;
+    }
+}
+
+// --- 云同步控制变量 ---
+let syncInFlight = false;
+// 本机上次确认同步的云端版本时间，用于提醒用户云端内容已变化
+let localLastSync = safeStorageGet('japanese_vocab_last_sync');
 
 // ==========================================
 // 🏷️ 标签的自定义顺序
@@ -178,22 +198,101 @@ function reshuffleDisplay() {
 let lastCardRenderContext = '';
 
 // 2. 从本地存储加载数据
+function isValidCardList(value) {
+    return Array.isArray(value) && value.every(card =>
+        card && typeof card === 'object' && !Array.isArray(card) && typeof card.word === 'string' &&
+        (card.tags === undefined || Array.isArray(card.tags))
+    );
+}
+
+function isValidNotebookData(value) {
+    return !!value && typeof value === 'object' && !Array.isArray(value) &&
+        Object.keys(value).length > 0 && Object.entries(value).every(([name, cards]) => typeof name === 'string' && isValidCardList(cards));
+}
+
+function showLocalDataRecovery(key, raw, reason) {
+    corruptLocalDataKey = key;
+    corruptLocalData = raw;
+    corruptDataDownloaded = false;
+    const detail = document.getElementById('storage-recovery-detail');
+    const downloadButton = document.getElementById('storage-recovery-download');
+    const continueButton = document.getElementById('storage-recovery-continue');
+    detail.textContent = `原因：${reason}\n原始数据没有被网页自动覆盖。请先下载副本，再选择使用示例数据继续。`;
+    downloadButton.disabled = typeof raw !== 'string';
+    continueButton.disabled = true;
+    document.getElementById('storage-recovery-modal').classList.remove('hidden');
+}
+
+window.downloadCorruptLocalData = function() {
+    if (typeof corruptLocalData !== 'string') return;
+    try {
+        const blob = new Blob([corruptLocalData], { type: 'application/json;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = '日语单词本-无法读取的数据副本.json';
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        corruptDataDownloaded = true;
+        document.getElementById('storage-recovery-continue').disabled = false;
+        document.getElementById('storage-recovery-download').textContent = '已下载数据副本';
+    } catch (err) {
+        document.getElementById('storage-recovery-detail').textContent += '\n下载失败，请勿关闭此页面；可检查浏览器下载设置后重试。';
+    }
+}
+
+window.continueWithDefaultData = function() {
+    if (!corruptDataDownloaded || !corruptLocalDataKey) return;
+    try {
+        localStorage.removeItem(corruptLocalDataKey);
+        document.getElementById('storage-recovery-modal').classList.add('hidden');
+        corruptLocalData = null;
+        corruptLocalDataKey = null;
+        const loaded = loadData();
+        if (loaded) showToast('已使用可读取的数据打开。无法读取的数据副本已下载到浏览器的下载目录。');
+    } catch (err) {
+        document.getElementById('storage-recovery-detail').textContent = `无法继续：${err.message}\n请确认浏览器允许此网页使用本地存储。`;
+    }
+}
+
 function loadData() {
-    const oldData = localStorage.getItem('japanese_vocab_list');
-    const notebooksData = localStorage.getItem('japanese_vocab_notebooks');
-    const activeNotebookData = localStorage.getItem('japanese_vocab_active');
+    let oldData, notebooksData, activeNotebookData;
+    try {
+        oldData = localStorage.getItem('japanese_vocab_list');
+        notebooksData = localStorage.getItem('japanese_vocab_notebooks');
+        activeNotebookData = localStorage.getItem('japanese_vocab_active');
+    } catch (err) {
+        showLocalDataRecovery(null, null, '浏览器拒绝读取此网页的本地存储');
+        return false;
+    }
 
     if (notebooksData) {
-        notebooks = JSON.parse(notebooksData);
+        try {
+            const parsed = JSON.parse(notebooksData);
+            if (!isValidNotebookData(parsed)) throw new Error('单词本数据结构不完整');
+            notebooks = parsed;
+        } catch (err) {
+            showLocalDataRecovery('japanese_vocab_notebooks', notebooksData, err.message || '单词本数据无法解析');
+            return false;
+        }
         activeNotebook = activeNotebookData || Object.keys(notebooks)[0] || "日常";
     } else if (oldData) {
-        notebooks = { "日常": JSON.parse(oldData) };
+        try {
+            const parsed = JSON.parse(oldData);
+            if (!isValidCardList(parsed)) throw new Error('旧版单词数据结构不完整');
+            notebooks = { "日常": parsed };
+        } catch (err) {
+            showLocalDataRecovery('japanese_vocab_list', oldData, err.message || '旧版单词数据无法解析');
+            return false;
+        }
         if (notebooks["日常"].length === 0) {
             notebooks["日常"] = [...defaultNotebooks["日常"]];
         }
         activeNotebook = "日常";
         saveData();
-        showToast("已为你无痛迁移并保留了之前录入的单词！");
+        showToast("旧版单词数据已迁移，原有单词已保留。");
     } else {
         notebooks = JSON.parse(JSON.stringify(defaultNotebooks));
         activeNotebook = "日常";
@@ -221,44 +320,40 @@ function loadData() {
     });
 
     // 清理旧版本遗留的排序档位键（标签排序现在只有"自定义"一种，该键已废弃）
-    localStorage.removeItem('japanese_vocab_tag_sort');
+    try { localStorage.removeItem('japanese_vocab_tag_sort'); } catch (err) { /* 清理旧设置失败不影响单词本 */ }
 
-    exportSortMode = localStorage.getItem(EXPORT_SORT_KEY) || 'display';
+    exportSortMode = safeStorageGet(EXPORT_SORT_KEY, 'display');
     if (!EXPORT_SORT_LABEL[exportSortMode]) exportSortMode = 'display';
     updateExportSortButtons();
     try {
-        const savedOrder = JSON.parse(localStorage.getItem(TAG_ORDER_KEY) || 'null');
+        const savedOrder = JSON.parse(safeStorageGet(TAG_ORDER_KEY, 'null'));
         tagOrder = Array.isArray(savedOrder) ? savedOrder : null;
     } catch (e) {
         tagOrder = null;
     }
 
-    const savedToken = localStorage.getItem('gist_token');
-    const savedGistId = localStorage.getItem('gist_id');
+    const savedToken = safeStorageGet('gist_token');
+    const savedGistId = safeStorageGet('gist_id');
     if (savedToken) document.getElementById('gist-token').value = savedToken;
     if (savedGistId) document.getElementById('gist-id').value = savedGistId;
 
     renderNotebookTabs();
     renderCards();
+    return true;
 }
 
-// skipAutoSync: 云同步拉取内部调用时传 true，避免"刚拉下来的数据又传回去"的空转
-function saveData(skipAutoSync = false) {
-    localStorage.setItem('japanese_vocab_notebooks', JSON.stringify(notebooks));
-    localStorage.setItem('japanese_vocab_active', activeNotebook);
-    updateHeaderCount();
-
-    if (skipAutoSync) return;
-
-    // 触发 5 分钟防抖自动上传（仅在已完成过一次手动同步、localStorage 存有凭证时生效）
-    const token = localStorage.getItem('gist_token');
-    const gistId = localStorage.getItem('gist_id');
-    if (token && gistId) {
-        if (autoSyncTimer) clearTimeout(autoSyncTimer);
-        autoSyncTimer = setTimeout(() => {
-            autoSyncTimer = null;
-            syncToCloud(true); // isAuto = true，静默上传
-        }, 5 * 60 * 1000);
+function saveData() {
+    try {
+        const serialized = JSON.stringify(notebooks);
+        localStorage.setItem('japanese_vocab_notebooks', serialized);
+        localStorage.setItem('japanese_vocab_active', activeNotebook);
+        localSaveFailed = false;
+        updateHeaderCount();
+        return true;
+    } catch (err) {
+        localSaveFailed = true;
+        showToast('本次更改未能保存到浏览器；刷新或关闭页面可能会丢失。请先导出需要保留的内容，检查浏览器存储空间后重试。', null, 9000);
+        return false;
     }
 }
 
@@ -266,19 +361,27 @@ function rubyBracketRegex() {
     return /([^\s\[\]\u3040-\u309f\u30a0-\u30f4\u30f7-\u30ff]+)\[([^\]]+)\]/g;
 }
 
+// 用户输入、导入文件和云端备份中的文字一律按纯文本显示，不能解释为 HTML。
+function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>"']/g, ch => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    }[ch]));
+}
+
 function parseRubyText(word, fallbackKana) {
+    word = String(word || '');
     const bracketRegex = rubyBracketRegex();
 
     if (bracketRegex.test(word)) {
         bracketRegex.lastIndex = 0;
-        return word.replace(bracketRegex, '<ruby>$1<rt>$2</rt></ruby>');
+        return word.replace(bracketRegex, (_, base, reading) => `<ruby>${escapeHtml(base)}<rt>${escapeHtml(reading)}</rt></ruby>`);
     }
 
     if (fallbackKana && fallbackKana.trim() !== "") {
-        return `<ruby>${word}<rt>${fallbackKana.trim()}</rt></ruby>`;
+        return `<ruby>${escapeHtml(word)}<rt>${escapeHtml(fallbackKana.trim())}</rt></ruby>`;
     }
 
-    return word;
+    return escapeHtml(word);
 }
 
 function getCleanWordText(word) {
@@ -326,13 +429,29 @@ function matchesSearchTerms(item, terms) {
     return terms.every(term => corpus.includes(term));
 }
 
-function hasGlobalDuplicate(word, excludedCardId = null) {
+function findGlobalDuplicateNotebook(word, excludedCardId = null, preferredNotebook = null) {
     const identity = normalizeSearchText(getCleanWordText(word)).replace(/\s+/g, '');
-    if (!identity) return false;
-    return Object.values(notebooks).some(cards => cards.some(card => {
-        if (excludedCardId && card.id === excludedCardId) return false;
-        return normalizeSearchText(getCleanWordText(card.word)).replace(/\s+/g, '') === identity;
-    }));
+    if (!identity) return null;
+    const entries = Object.entries(notebooks);
+    if (preferredNotebook && notebooks[preferredNotebook]) {
+        const cards = notebooks[preferredNotebook];
+        if ((cards || []).some(card => {
+            if (excludedCardId && card.id === excludedCardId) return false;
+            return normalizeSearchText(getCleanWordText(card.word)).replace(/\s+/g, '') === identity;
+        })) return preferredNotebook;
+    }
+    for (const [notebookName, cards] of entries) {
+        if (notebookName === preferredNotebook) continue;
+        if ((cards || []).some(card => {
+            if (excludedCardId && card.id === excludedCardId) return false;
+            return normalizeSearchText(getCleanWordText(card.word)).replace(/\s+/g, '') === identity;
+        })) return notebookName;
+    }
+    return null;
+}
+
+function hasGlobalDuplicate(word, excludedCardId = null) {
+    return findGlobalDuplicateNotebook(word, excludedCardId) !== null;
 }
 
 function toCircledNum(n) {
@@ -359,8 +478,8 @@ function formatExample(exampleText) {
     const cnLineStyle = 'font-size: calc(0.75rem * var(--font-scale, 1.0) * var(--fit-scale, 1.0));';
 
     const renderLine = ({ jp, cn }) => `
-        <div class="${jpLineCls}" lang="ja" style="${jpLineStyle}">${jp}</div>
-        ${cn ? `<div class="${cnLineCls}" style="${cnLineStyle}">${cn}</div>` : ''}
+        <div class="${jpLineCls}" lang="ja" style="${jpLineStyle}">${escapeHtml(jp)}</div>
+        ${cn ? `<div class="${cnLineCls}" style="${cnLineStyle}">${escapeHtml(cn)}</div>` : ''}
     `;
 
     const bodyHtml = segments.length > 1
@@ -433,9 +552,13 @@ function renderGlobalTags() {
         const btn = document.createElement('button');
         const isActive = activeTagFilters.includes(tag);
         // 选中时在标签名后显示总词数（全部单词本、不分掌握状态），未选中保持纯净
-        btn.innerHTML = isActive
-            ? `${tag}<span class="ml-1.5 font-sans text-[10px] opacity-70">${tagCounts.get(tag)}</span>`
-            : tag;
+        btn.textContent = tag;
+        if (isActive) {
+            const count = document.createElement('span');
+            count.className = 'ml-1.5 font-sans text-[10px] opacity-70';
+            count.textContent = tagCounts.get(tag);
+            btn.appendChild(count);
+        }
         btn.className = isActive ? activeCls : inactiveCls;
         // 无论选中与否都带上完整名称：标签过长会被 truncate 截断，靠 tooltip 补全
         btn.title = isActive
@@ -746,7 +869,6 @@ window.openConfirmModal = function(options) {
 
     titleEl.textContent = opts.title || '确认操作？';
     // message 支持换行：\n 转成 <br>，同时对内容做转义，避免标签名里的特殊字符破坏结构
-    const escapeHtml = (s) => String(s).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
     messageEl.innerHTML = escapeHtml(opts.message || '').replace(/\n/g, '<br>');
     okBtn.textContent = opts.confirmText || '确认';
 
@@ -870,6 +992,10 @@ function showToast(msg, onUndo = null, duration = 4000) {
     const toastMsg = document.getElementById('toast-message');
     const toastAction = document.getElementById('toast-action');
 
+    if (localSaveFailed) {
+        msg = '本次更改未能保存到浏览器；刷新或关闭页面可能会丢失。请先导出需要保留的内容，检查浏览器存储空间后重试。';
+        duration = Math.max(duration, 9000);
+    }
     toastMsg.innerText = msg;
 
     if (onUndo) {
@@ -952,8 +1078,8 @@ function renderNotebookTabs() {
         const reviewCount = notebooks[name].filter(c => !c.mastered).length;
 
         return `
-            <button onclick="switchNotebook('${name}')" class="px-4 py-1.5 rounded-full text-xs transition-colors duration-200 whitespace-nowrap ${isActive ? activeStyle : inactiveStyle}">
-                ${name}
+            <button onclick="switchNotebookFromElement(event, this)" data-notebook-name="${escapeHtml(name)}" class="px-4 py-1.5 rounded-full text-xs transition-colors duration-200 whitespace-nowrap ${isActive ? activeStyle : inactiveStyle}">
+                ${escapeHtml(name)}
                 <span class="ml-1 text-[10px] opacity-60">(${reviewCount})</span>
             </button>
         `;
@@ -971,8 +1097,8 @@ function renderNotebookMenu() {
         const isActive = name === activeNotebook;
         const reviewCount = notebooks[name].filter(c => !c.mastered).length;
         return `
-            <button onclick="switchNotebookFromMenu('${name}')" class="w-full px-3 py-2 rounded-lg text-left text-xs font-semibold flex items-center justify-between gap-2 transition-colors ${isActive ? 'bg-emerald-800/[0.12] dark:bg-emerald-400/[0.12] text-emerald-800 dark:text-emerald-400' : 'text-stone-600 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-700'}">
-                <span class="truncate">${name}</span>
+            <button onclick="switchNotebookFromElement(event, this)" data-notebook-name="${escapeHtml(name)}" class="w-full px-3 py-2 rounded-lg text-left text-xs font-semibold flex items-center justify-between gap-2 transition-colors ${isActive ? 'bg-emerald-800/[0.12] dark:bg-emerald-400/[0.12] text-emerald-800 dark:text-emerald-400' : 'text-stone-600 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-700'}">
+                <span class="truncate">${escapeHtml(name)}</span>
                 <span class="text-[10px] opacity-60 shrink-0">${reviewCount}</span>
             </button>
         `;
@@ -984,8 +1110,24 @@ window.toggleNotebookMenu = function(event) {
     document.getElementById('notebook-menu').classList.toggle('hidden');
 }
 
+window.handleCardMasterButton = function(event, button) {
+    const card = button.closest('[data-card-id]');
+    if (card) toggleCardMastered(event, card.dataset.cardId, card.dataset.sourceNotebook || activeNotebook);
+}
+
+window.handleCardEditButton = function(event, button) {
+    const card = button.closest('[data-card-id]');
+    if (card) openEditCardModal(event, card.dataset.cardId, card.dataset.sourceNotebook || activeNotebook);
+}
+
 window.switchNotebookFromMenu = function(name) {
     switchNotebook(name);
+    document.getElementById('notebook-menu').classList.add('hidden');
+}
+
+window.switchNotebookFromElement = function(event, button) {
+    event.stopPropagation();
+    switchNotebook(button.dataset.notebookName);
     document.getElementById('notebook-menu').classList.add('hidden');
 }
 
@@ -1024,11 +1166,11 @@ window.submitNewNotebook = function() {
     const input = document.getElementById('new-notebook-input');
     const newName = input.value.trim();
     if (!newName) {
-        showToast("名字不能为空哦");
+        showToast("请输入单词本名称。");
         return;
     }
     if (notebooks[newName]) {
-        showToast("该单词本名称已存在！");
+            showToast("这个单词本名称已经用过了，请换一个名称。");
         return;
     }
 
@@ -1067,7 +1209,7 @@ window.submitRenameNotebook = function() {
     const oldName = activeNotebook;
 
     if (!newName) {
-        showToast("新名字不能为空哦！");
+        showToast("请输入新的单词本名称。");
         return;
     }
     if (newName === oldName) {
@@ -1075,7 +1217,7 @@ window.submitRenameNotebook = function() {
         return;
     }
     if (notebooks[newName]) {
-        showToast("该单词本名称已存在，请换一个名字！");
+        showToast("这个单词本名称已经用过了，请换一个名称。");
         return;
     }
 
@@ -1640,15 +1782,17 @@ function renderCards() {
 
 function buildCardHtml(item, isGlobalScope) {
         const rubyBack = parseRubyText(item.word, item.kana);
-        const cleanWordFront = item.word.replace(/([^\s\[\]]+)\[([^\]]+)\]/g, '$1');
+        const cleanWordFront = escapeHtml(item.word.replace(/([^\s\[\]]+)\[([^\]]+)\]/g, '$1'));
         const sourceNotebook = item.sourceNotebook || activeNotebook;
+        const safeCardId = escapeHtml(item.id);
+        const safeNotebook = escapeHtml(sourceNotebook);
         const dragOn = isDragSortEnabled();
         const notebookBadgeHtml = isGlobalScope
-            ? `<span class="px-1.5 py-0.5 rounded-md bg-stone-100 dark:bg-stone-700/60 text-stone-500 dark:text-stone-300 font-medium" style="font-size: var(--fs-tiny);">${sourceNotebook} · ${item.mastered ? '已掌握' : '复习中'}</span>`
+            ? `<span class="px-1.5 py-0.5 rounded-md bg-stone-100 dark:bg-stone-700/60 text-stone-500 dark:text-stone-300 font-medium" style="font-size: var(--fs-tiny);">${safeNotebook} · ${item.mastered ? '已掌握' : '复习中'}</span>`
             : '';
 
         const masterButtonHtml = `
-            <button onclick="toggleCardMastered(event, '${item.id}', '${sourceNotebook}')" class="${item.mastered ? 'text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 bg-emerald-50 dark:bg-emerald-900/30 dark:hover:bg-emerald-900/60' : 'text-stone-300 dark:text-stone-600 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/30'} rounded-lg transition duration-150 shrink-0 flex items-center justify-center active:scale-75" style="padding: calc(0.375rem * var(--card-scale, 1.0));" title="${item.mastered ? '移回复习中' : '标记为已掌握'}">
+            <button onclick="handleCardMasterButton(event, this)" class="${item.mastered ? 'text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 bg-emerald-50 dark:bg-emerald-900/30 dark:hover:bg-emerald-900/60' : 'text-stone-300 dark:text-stone-600 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/30'} rounded-lg transition duration-150 shrink-0 flex items-center justify-center active:scale-75" style="padding: calc(0.375rem * var(--card-scale, 1.0));" title="${item.mastered ? '移回复习中' : '标记为已掌握'}">
                 <svg class="w-4 h-4" style="width: calc(1rem * var(--card-scale, 1.0)); height: calc(1rem * var(--card-scale, 1.0));" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="${item.mastered ? '2.2' : '2.5'}" d="${item.mastered ? 'M10 19l-7-7m0 0l7-7m-7 7h18' : 'M5 13l4 4L19 7'}"></path>
                 </svg>
@@ -1656,7 +1800,7 @@ function buildCardHtml(item, isGlobalScope) {
         `;
 
         const editButtonHtml = `
-            <button onclick="openEditCardModal(event, '${item.id}', '${sourceNotebook}')" class="text-stone-300 dark:text-stone-600 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 rounded-lg transition duration-150 shrink-0 flex items-center justify-center" style="padding: calc(0.375rem * var(--card-scale, 1.0));" title="修改卡片内容">
+            <button onclick="handleCardEditButton(event, this)" class="text-stone-300 dark:text-stone-600 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 rounded-lg transition duration-150 shrink-0 flex items-center justify-center" style="padding: calc(0.375rem * var(--card-scale, 1.0));" title="修改卡片内容">
                 <svg class="w-4 h-4" style="width: calc(1rem * var(--card-scale, 1.0)); height: calc(1rem * var(--card-scale, 1.0));" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg>
             </button>
         `;
@@ -1664,11 +1808,11 @@ function buildCardHtml(item, isGlobalScope) {
         if (layoutMode === "grid") {
             let tagsHtml = '';
             if (item.tags && item.tags.length > 0) {
-                tagsHtml = item.tags.map(tag => `<span class="px-1.5 py-0.5 bg-emerald-800/[0.12] dark:bg-emerald-400/[0.12] text-emerald-800 dark:text-emerald-400 rounded text-[10px] mr-1 font-medium shrink-0">${tag}</span>`).join('');
+                tagsHtml = item.tags.map(tag => `<span class="px-1.5 py-0.5 bg-emerald-800/[0.12] dark:bg-emerald-400/[0.12] text-emerald-800 dark:text-emerald-400 rounded text-[10px] mr-1 font-medium shrink-0">${escapeHtml(tag)}</span>`).join('');
             }
 
             return `
-                <div class="perspective group cursor-pointer card-scale-box" data-card-id="${item.id}" data-has-example="${item.example ? 'true' : 'false'}" onclick="flipCard(this)" ontouchstart="">
+                <div class="perspective group cursor-pointer card-scale-box" data-card-id="${safeCardId}" data-source-notebook="${safeNotebook}" data-has-example="${item.example ? 'true' : 'false'}" onclick="flipCard(this)" ontouchstart="">
                     <div class="card-inner relative w-full h-full rounded-2xl shadow-sm border border-stone-200/80 dark:border-stone-700/80 bg-white dark:bg-stone-900${flippedCardIds.has(item.id) ? ' is-flipped' : ''}">
 
                         <div class="card-front absolute inset-0 w-full h-full flex flex-col justify-between rounded-2xl bg-white dark:bg-stone-900 overflow-hidden" style="padding: var(--card-pad);">
@@ -1716,7 +1860,7 @@ function buildCardHtml(item, isGlobalScope) {
                                             <h3 class="font-japanese font-medium text-stone-900 dark:text-stone-100 leading-normal inline-block" lang="ja" style="font-size: var(--fs-sub);">${rubyBack}</h3>
                                         </div>
                                         <div class="text-center">
-                                            <p class="text-stone-700 dark:text-stone-300 bg-stone-200/40 dark:bg-stone-800/40 rounded-lg inline-block max-w-full font-semibold" style="font-size: var(--fs-text); padding: calc(0.375rem * var(--card-scale, 1.0)) calc(0.75rem * var(--card-scale, 1.0));">${item.meaning}</p>
+                                            <p class="text-stone-700 dark:text-stone-300 bg-stone-200/40 dark:bg-stone-800/40 rounded-lg inline-block max-w-full font-semibold" style="font-size: var(--fs-text); padding: calc(0.375rem * var(--card-scale, 1.0)) calc(0.75rem * var(--card-scale, 1.0));">${escapeHtml(item.meaning)}</p>
                                         </div>
                                         ${item.example ? formatExample(item.example) : ''}
                                     </div>
@@ -1729,16 +1873,16 @@ function buildCardHtml(item, isGlobalScope) {
         } else {
             let tagsHtmlList = '';
             if (item.tags && item.tags.length > 0) {
-                tagsHtmlList = item.tags.map(tag => `<span class="px-1.5 py-0.5 bg-emerald-800/[0.12] dark:bg-emerald-400/[0.12] text-emerald-800 dark:text-emerald-400 rounded text-[10px] font-medium">${tag}</span>`).join('');
+                tagsHtmlList = item.tags.map(tag => `<span class="px-1.5 py-0.5 bg-emerald-800/[0.12] dark:bg-emerald-400/[0.12] text-emerald-800 dark:text-emerald-400 rounded text-[10px] font-medium">${escapeHtml(tag)}</span>`).join('');
             }
 
             return `
-                <div data-card-id="${item.id}" class="bg-white dark:bg-stone-900 border border-stone-200/80 dark:border-stone-700/80 rounded-xl shadow-sm transition-all duration-200 overflow-hidden cursor-pointer card-press" onclick="toggleListExpand(this)" ontouchstart="">
+                <div data-card-id="${safeCardId}" data-source-notebook="${safeNotebook}" class="bg-white dark:bg-stone-900 border border-stone-200/80 dark:border-stone-700/80 rounded-xl shadow-sm transition-all duration-200 overflow-hidden cursor-pointer card-press" onclick="toggleListExpand(this)" ontouchstart="">
                     <div class="list-row-main px-4 flex justify-between items-center gap-3 bg-white dark:bg-stone-900 hover:bg-stone-50/50 dark:hover:bg-stone-800 transition-colors">
                         <div class="flex items-center flex-1 min-w-0 flex-wrap gap-x-3 gap-y-1">
                             <span class="w-1.5 h-1.5 bg-emerald-800 dark:bg-emerald-400 rounded-full transition-colors shrink-0"></span>
                             <span class="list-row-word font-japanese text-base font-semibold text-stone-800 dark:text-stone-200 tracking-wide transition-colors" lang="ja">${cleanWordFront}</span>
-                            ${isGlobalScope ? `<span class="text-[10px] text-stone-500 dark:text-stone-300 bg-stone-100 dark:bg-stone-700/60 px-1.5 py-0.5 rounded-md shrink-0">${sourceNotebook} · ${item.mastered ? '已掌握' : '复习中'}</span>` : ''}
+                            ${isGlobalScope ? `<span class="text-[10px] text-stone-500 dark:text-stone-300 bg-stone-100 dark:bg-stone-700/60 px-1.5 py-0.5 rounded-md shrink-0">${safeNotebook} · ${item.mastered ? '已掌握' : '复习中'}</span>` : ''}
                             ${tagsHtmlList ? `<div class="flex flex-wrap gap-1 min-w-0">${tagsHtmlList}</div>` : ''}
                         </div>
                         <div class="flex items-center space-x-2.5 shrink-0">
@@ -1758,7 +1902,7 @@ function buildCardHtml(item, isGlobalScope) {
                             </div>
                             <div class="flex items-center space-x-2">
                                 <span class="text-xs font-bold text-stone-400 dark:text-stone-500 uppercase tracking-wider shrink-0 transition-colors">释义:</span>
-                                <span class="text-stone-800 dark:text-stone-200 font-semibold px-2.5 py-1 bg-stone-200/40 dark:bg-stone-800/40 rounded-lg inline-block transition-colors">${item.meaning}</span>
+                                <span class="text-stone-800 dark:text-stone-200 font-semibold px-2.5 py-1 bg-stone-200/40 dark:bg-stone-800/40 rounded-lg inline-block transition-colors">${escapeHtml(item.meaning)}</span>
                             </div>
                         </div>
                         ${item.example ? formatExample(item.example) : ''}
@@ -1935,7 +2079,7 @@ window.openEditCardModal = function(event, cardId, notebookName = activeNotebook
     // 修改下拉框逻辑：展示所有本子，默认选中当前
     const targetSelect = document.getElementById('edit-move-target');
     const targets = Object.keys(notebooks);
-    targetSelect.innerHTML = targets.map(name => `<option value="${name}">${name}</option>`).join('');
+    targetSelect.innerHTML = targets.map(name => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join('');
     targetSelect.value = notebookName;
 
     const modal = document.getElementById('edit-card-modal');
@@ -1952,7 +2096,7 @@ function renderEditTags() {
     // 已选中标签统一颜色，与主界面对齐
     container.innerHTML = currentEditTags.map((tag, index) => `
         <span class="inline-flex items-center gap-1 px-2 py-1 bg-emerald-800/[0.12] dark:bg-emerald-400/[0.12] text-emerald-800 dark:text-emerald-400 rounded text-xs font-medium">
-            ${tag}
+            ${escapeHtml(tag)}
             <button type="button" onclick="removeEditTag(${index})" class="hover:text-emerald-950 dark:hover:text-emerald-100 focus:outline-none ml-0.5">&times;</button>
         </span>
     `).join('');
@@ -2051,9 +2195,16 @@ document.getElementById('edit-vocab-form').addEventListener('submit', function(e
         const card = currentList[cardIndex];
         const updatedWord = document.getElementById('edit-word').value.trim();
 
-        if (hasGlobalDuplicate(updatedWord, card.id)) {
-            showToast('全局单词库中已存在同一个单词，无法保存。');
-            return;
+        const currentIdentity = normalizeSearchText(getCleanWordText(card.word)).replace(/\s+/g, '');
+        const updatedIdentity = normalizeSearchText(getCleanWordText(updatedWord)).replace(/\s+/g, '');
+        if (updatedIdentity !== currentIdentity || (targetNotebook && targetNotebook !== editNotebook)) {
+            const duplicateNotebook = findGlobalDuplicateNotebook(updatedWord, card.id, targetNotebook || editNotebook);
+            if (duplicateNotebook) {
+                showToast(duplicateNotebook === editNotebook
+                    ? `当前单词本里已经收录了“${getCleanWordText(updatedWord)}”，不能保存重复词条。`
+                    : `“${getCleanWordText(updatedWord)}”已经收录在「${duplicateNotebook}」单词本中，不能保存重复词条。`);
+                return;
+            }
         }
 
         card.word = updatedWord;
@@ -2119,7 +2270,7 @@ window.submitDeleteCardPermanently = function() {
    点击音效：标记「已掌握」时播放清脆一声（WebAudio 合成，无需素材文件）
    ============================================================ */
 // 默认开启；存 localStorage，可被顶部喇叭开关覆盖
-let soundEnabled = (localStorage.getItem('sound_enabled') !== 'false');
+let soundEnabled = (safeStorageGet('sound_enabled', 'true') !== 'false');
 
 let _audioCtx = null;
 function getAudioCtx() {
@@ -2327,12 +2478,19 @@ window.saveAiSettings = function() {
 
 let currentBatchImageBase64 = null;
 let currentBatchImageMimeType = null;
+const MAX_BATCH_IMAGE_SIZE = 10 * 1024 * 1024; // 单张图片最多 10 MB
 
 window.handleBatchImageUpload = function(event) {
     const file = event.target.files[0];
     if (!file) return;
     if (!file.type.startsWith('image/')) {
-        showToast("请上传合法的图片文件！");
+        showToast("请选择图片文件。");
+        event.target.value = '';
+        return;
+    }
+    if (file.size > MAX_BATCH_IMAGE_SIZE) {
+        showToast("图片超过 10 MB 上限，请先缩小图片后再上传。", null, 7000);
+        event.target.value = '';
         return;
     }
     const reader = new FileReader();
@@ -2343,6 +2501,10 @@ window.handleBatchImageUpload = function(event) {
         document.getElementById('batch-image-preview').src = result;
         document.getElementById('batch-image-preview-container').classList.remove('hidden');
         document.getElementById('batch-import-textarea').placeholder = "✅ 图片已就绪。您可以将文本框留空，或者在此输入额外的约束补充说明...";
+    };
+    reader.onerror = function() {
+        showToast("图片读取失败，请重新选择图片。", null, 6000);
+        event.target.value = '';
     };
     reader.readAsDataURL(file);
 }
@@ -2445,7 +2607,8 @@ window.handleJsonFileUpload = function(event) {
         previewJsonImport();
     };
     reader.onerror = function() {
-        showToast("文件读取失败，请重试。");
+        showToast("JSON 文件读取失败，请重新选择文件。");
+        event.target.value = '';
     };
     reader.readAsText(file, 'utf-8');
 }
@@ -2462,7 +2625,7 @@ window.previewJsonImport = function() {
     try {
         const parsed = parseVocabPack(text);
         const sample = parsed.cards.slice(0, 3).map(c => getCleanWordText(c.word)).join('、');
-        preview.innerHTML = `✅ 识别为 <strong>${parsed.formatLabel}</strong>，共 <strong>${parsed.cards.length}</strong> 个单词：${sample}${parsed.cards.length > 3 ? ' …' : ''}`;
+        preview.innerHTML = `✅ 识别为 <strong>${escapeHtml(parsed.formatLabel)}</strong>，共 <strong>${parsed.cards.length}</strong> 个单词：${escapeHtml(sample)}${parsed.cards.length > 3 ? ' …' : ''}`;
         preview.classList.remove('hidden');
         submitBtn.disabled = false;
         const nameInput = document.getElementById('json-new-notebook-name');
@@ -2485,7 +2648,10 @@ window.submitJsonImport = function() {
     try {
         parsed = parseVocabPack(text);
     } catch (e) {
-        showToast(`❌ JSON 解析失败：${e.message}`);
+        const reason = e instanceof SyntaxError
+            ? '内容不是有效的 JSON 格式'
+            : e.message;
+        showToast(`无法读取这份 JSON 单词包：${reason}。请确认内容完整，或重新导出后再试。`, null, 7000);
         return;
     }
 
@@ -2509,13 +2675,11 @@ window.submitJsonImport = function() {
     }
 
     const targetList = notebooks[targetName];
-    const getCleanWord = (w) => w.replace(/([^\s\[\]]+)\[([^\]]+)\]/g, '$1');
     let successCount = 0;
     let dupCount = 0;
 
     parsed.cards.forEach(c => {
-        const cleanInputWord = getCleanWord(c.word);
-        const isDuplicate = targetList.some(card => getCleanWord(card.word) === cleanInputWord);
+        const isDuplicate = hasGlobalDuplicate(c.word);
         if (isDuplicate) {
             dupCount++;
         } else {
@@ -2543,7 +2707,7 @@ window.submitJsonImport = function() {
     closeBatchImportModal();
 
     if (dupCount > 0) {
-        showToast(`📦 导入完成！新增 ${successCount} 个单词到「${targetName}」，自动跳过 ${dupCount} 个重复词。`);
+        showToast(`📦 导入完成！已向「${targetName}」添加 ${successCount} 个词，跳过 ${dupCount} 个已收录的词。`);
     } else {
         showToast(`📦 导入完成！${successCount} 个单词已加入「${targetName}」。`);
     }
@@ -2697,12 +2861,9 @@ window.submitBatchImport = async function() {
         let successCount = 0;
         let dupCount = 0;
 
-        const getCleanWord = (w) => w.replace(/([^\s\[\]]+)\[([^\]]+)\]/g, '$1');
-
         itemsList.reverse().forEach(item => {
             if(!item.word) return;
-            const cleanInputWord = getCleanWord(item.word.trim());
-            const isDuplicate = notebooks[activeNotebook].some(card => getCleanWord(card.word) === cleanInputWord);
+            const isDuplicate = hasGlobalDuplicate(item.word.trim());
 
             if (isDuplicate) {
                 dupCount++;
@@ -2725,7 +2886,7 @@ window.submitBatchImport = async function() {
         closeBatchImportModal();
 
         if (dupCount > 0) {
-            showToast(`✨ 提取完毕！成功提取 ${successCount} 个新词，自动跳过了 ${dupCount} 个库内重复词。`);
+            showToast(`✨ 提取完成！新增 ${successCount} 个词，跳过 ${dupCount} 个已收录的词。`);
         } else {
             showToast(`✨ 提取成功！从图片/笔记中为您制作了 ${successCount} 张新卡片。`);
         }
@@ -2740,19 +2901,72 @@ window.submitBatchImport = async function() {
     }
 }
 
-async function fetchWithBackoff(url, options, retries = 5, delay = 1000) {
-    for (let i = 0; i < retries; i++) {
-        try {
-            const response = await fetch(url, options);
-            if (response.ok) {
-                return await response.json();
-            }
-            throw new Error(`API 返回错误代码: ${response.status}`);
-        } catch (error) {
-            if (i === retries - 1) throw error;
-            await new Promise(res => setTimeout(res, delay));
-            delay *= 2;
+function getAiRetryDelay(response, fallbackDelay) {
+    const retryAfter = response.headers.get('Retry-After');
+    if (retryAfter) {
+        const seconds = Number(retryAfter);
+        const retryAt = Number.isFinite(seconds) ? Date.now() + seconds * 1000 : Date.parse(retryAfter);
+        if (Number.isFinite(retryAt)) {
+            // 避免服务端返回过长等待时间，让页面长时间卡在“处理中”。
+            return Math.min(Math.max(retryAt - Date.now(), 0), 10000);
         }
+    }
+    return fallbackDelay;
+}
+
+async function fetchWithBackoff(url, options, retries = 3, delay = 1000) {
+    const retryableStatuses = new Set([408, 425, 429, 500, 502, 503, 504]);
+
+    for (let attempt = 0; attempt <= retries; attempt++) {
+        let response;
+        try {
+            response = await fetch(url, options);
+        } catch (error) {
+            // fetch 的网络中断通常是 TypeError。其他异常（如请求参数错误）不重试。
+            if (!(error instanceof TypeError) || attempt === retries) {
+                if (error instanceof TypeError) throw new Error('网络连接失败，请检查网络后重试。');
+                throw error;
+            }
+            await new Promise(resolve => setTimeout(resolve, delay));
+            delay = Math.min(delay * 2, 8000);
+            continue;
+        }
+
+        if (response.ok) {
+            try {
+                return await response.json();
+            } catch (error) {
+                throw new Error('AI 服务返回的数据无法读取，请稍后重试。');
+            }
+        }
+
+        let providerMessage = '';
+        try {
+            const errorBody = await response.json();
+            providerMessage = errorBody?.error?.message || errorBody?.message || '';
+        } catch (error) {
+            // 有些服务在错误响应中返回的不是 JSON，不影响根据状态码给出提示。
+        }
+
+        if (retryableStatuses.has(response.status) && attempt < retries) {
+            const waitMs = getAiRetryDelay(response, delay);
+            await new Promise(resolve => setTimeout(resolve, waitMs));
+            delay = Math.min(delay * 2, 8000);
+            continue;
+        }
+
+        const statusMessage = response.status === 401 || response.status === 403
+            ? '密钥无效或没有调用权限'
+            : response.status === 400 || response.status === 422
+                ? '请求内容或参数不被服务接受'
+                : response.status === 404
+                    ? '找不到 AI 服务接口或模型'
+                    : response.status === 413
+                        ? '请求内容太大，请减少文本或缩小图片'
+                        : retryableStatuses.has(response.status)
+                            ? 'AI 服务暂时无法处理请求'
+                            : `请求失败（状态码 ${response.status}）`;
+        throw new Error(providerMessage ? `${statusMessage}：${providerMessage}` : statusMessage);
     }
 }
 
@@ -2862,7 +3076,7 @@ window.autoLookupWord = async function(isEdit = false) {
         showToast(`✨ 使用 ${activeProvider === 'gemini' ? 'Gemini' : 'DeepSeek'} 智能适配完成！`);
     } catch (error) {
         console.error(error);
-        showToast("匹配出现问题，请确认密钥、用量或网络环境。");
+        showToast(`匹配失败：${error.message || '请检查密钥、用量或网络环境。'}`, null, 7000);
     } finally {
         btn.disabled = false;
         btnSpinner.classList.add('hidden');
@@ -2923,6 +3137,9 @@ window.openCloudSyncModal = function() {
     const savedGistId = localStorage.getItem('gist_id');
     if (savedToken) document.getElementById('gist-token').value = savedToken;
     if (savedGistId) document.getElementById('gist-id').value = savedGistId;
+    if (localStorage.getItem('japanese_vocab_pre_cloud_restore_backup')) {
+        document.getElementById('btn-restore-sync-backup')?.classList.remove('hidden');
+    }
     if (drawer.classList.contains('hidden')) {
         drawer.classList.remove('hidden');
         setTimeout(() => {
@@ -2945,28 +3162,129 @@ function updateSyncStatus(msg, isError = false) {
     statusEl.className = `text-center text-xs font-semibold py-2 ${isError ? 'text-danger-600 dark:text-danger-400' : 'text-emerald-600 dark:text-emerald-400'}`;
 }
 
-// isAuto: 自动触发（防抖到点 / 页面关闭抢救），静默运行不打扰用户
-// isFlush: 页面关闭抢救模式，启用 keepalive 让请求在页面销毁后仍有机会送达
-window.syncToCloud = async function(isAuto = false, isFlush = false) {
+function stableSerialize(value) {
+    if (Array.isArray(value)) return `[${value.map(stableSerialize).join(',')}]`;
+    if (value && typeof value === 'object') {
+        return `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${stableSerialize(value[key])}`).join(',')}}`;
+    }
+    return JSON.stringify(value);
+}
+
+window.checkCloudStatus = async function() {
+    const token = document.getElementById('gist-token').value.trim() || localStorage.getItem('gist_token') || '';
+    const gistId = document.getElementById('gist-id').value.trim() || localStorage.getItem('gist_id') || '';
+    const btn = document.getElementById('btn-check-cloud');
+    const result = document.getElementById('cloud-check-result');
+
+    result.classList.remove('hidden');
+    result.className = 'whitespace-pre-line rounded-xl border border-stone-200 dark:border-stone-700 bg-stone-50 dark:bg-stone-900/60 px-3.5 py-3 text-xs leading-relaxed text-stone-600 dark:text-stone-300';
+
+    if (!gistId) {
+        result.textContent = '尚未绑定云端 Gist。请先用本机数据创建云端备份，再填写生成的 Gist ID。\n此检查不会修改任何数据。';
+        return;
+    }
+    if (!token) {
+        result.textContent = '请先填写 GitHub Token，再检查云端。\n此检查不会修改任何数据。';
+        return;
+    }
+    if (syncInFlight) {
+        updateSyncStatus('⏳ 正在同步中，请稍候再检查。');
+        return;
+    }
+
+    syncInFlight = true;
+    const syncButtons = ['btn-check-cloud', 'btn-sync-up', 'btn-sync-down'].map(id => document.getElementById(id));
+    syncButtons.forEach(button => { if (button) button.disabled = true; });
+    btn.innerHTML = '<span class="animate-spin mr-2">🌀</span>正在检查云端...';
+    result.textContent = '正在读取云端备份…';
+
+    try {
+        const response = await fetch(`https://api.github.com/gists/${encodeURIComponent(gistId)}`, {
+            method: 'GET',
+            headers: {
+                'Accept': 'application/vnd.github.v3+json',
+                'Authorization': `token ${token}`
+            }
+        });
+        if (!response.ok) {
+            if (response.status === 404) throw new Error('找不到该 Gist，请检查 ID 和访问权限');
+            if (response.status === 401) throw new Error('Token 验证失败');
+            throw new Error(`GitHub 请求失败（状态码：${response.status}）`);
+        }
+
+        const gist = await response.json();
+        const file = gist.files && gist.files['japanese_vocab_backup.json'];
+        if (!file || !file.content) throw new Error('Gist 中没有可读取的单词本备份文件');
+        const cloud = JSON.parse(file.content);
+        if (!cloud.notebooks || typeof cloud.notebooks !== 'object' || Array.isArray(cloud.notebooks)) {
+            throw new Error('云端备份格式不正确');
+        }
+        const books = Object.entries(cloud.notebooks);
+        if (!books.every(([name, cards]) => typeof name === 'string' && Array.isArray(cards) && cards.every(card => card && typeof card === 'object' && typeof card.word === 'string'))) {
+            throw new Error('云端备份结构不完整，无法安全比较');
+        }
+
+        const cloudCount = books.reduce((sum, [, cards]) => sum + cards.length, 0);
+        const localCount = getAllCardIds().length;
+        const isSame = stableSerialize({ notebooks, tagOrder: tagOrder || [] }) === stableSerialize({ notebooks: cloud.notebooks, tagOrder: Array.isArray(cloud.tagOrder) ? cloud.tagOrder : [] });
+        const timestamp = cloud.lastSync && !Number.isNaN(new Date(cloud.lastSync).getTime())
+            ? new Date(cloud.lastSync).toLocaleString()
+            : '云端未记录时间';
+        result.className = `whitespace-pre-line rounded-xl border px-3.5 py-3 text-xs leading-relaxed ${isSame ? 'border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-800/60 dark:bg-emerald-900/20 dark:text-emerald-300' : 'border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-800/60 dark:bg-amber-900/20 dark:text-amber-300'}`;
+        result.textContent = `云端备份 · ${timestamp}\n${books.length} 本单词本 · ${cloudCount} 个单词\n本机：${Object.keys(notebooks).length} 本 · ${localCount} 个单词\n\n${isSame ? '本机与云端内容一致。' : '本机与云端内容不同，请确认要保留哪一边。'}\n此检查只读取数据，不会上传或替换内容。`;
+    } catch (err) {
+        result.className = 'whitespace-pre-line rounded-xl border border-danger-100 bg-danger-50 px-3.5 py-3 text-xs leading-relaxed text-danger-700 dark:border-danger-800/60 dark:bg-danger-900/20 dark:text-danger-300';
+        result.textContent = `检查失败：${err.message}\n数据没有被修改。`;
+    } finally {
+        syncInFlight = false;
+        syncButtons.forEach(button => { if (button) button.disabled = false; });
+        btn.innerHTML = '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-4.3-4.3m1.8-5.2a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg><span>检查云端</span>';
+    }
+}
+
+window.restorePreCloudBackup = function() {
+    try {
+        const backup = JSON.parse(localStorage.getItem('japanese_vocab_pre_cloud_restore_backup') || 'null');
+        if (!backup || !backup.notebooks || typeof backup.notebooks !== 'object') throw new Error('没有找到可恢复的本机备份');
+        const count = Object.values(backup.notebooks).reduce((sum, cards) => sum + (Array.isArray(cards) ? cards.length : 0), 0);
+        if (!confirm(`将恢复拉取前保存的本机数据（${count} 个单词），当前数据会被替换。继续吗？`)) return;
+        notebooks = backup.notebooks;
+        activeNotebook = backup.activeNotebook && notebooks[backup.activeNotebook] ? backup.activeNotebook : (Object.keys(notebooks)[0] || '日常');
+        if (Array.isArray(backup.tagOrder)) {
+            tagOrder = backup.tagOrder;
+            saveTagOrder();
+        }
+        saveData();
+        renderNotebookTabs();
+        renderGlobalTags();
+        renderCards();
+        updateSyncStatus(`✅ 已恢复拉取前的本机备份：${count} 个单词`);
+        showToast('当前浏览器中的备份已恢复。');
+    } catch (err) {
+        updateSyncStatus(`❌ 恢复备份失败：${err.message}`, true);
+    }
+}
+
+window.syncToCloud = async function() {
     // 凭证读取：输入框优先（用户改动能立即生效），localStorage 兜底
     const token = document.getElementById('gist-token').value.trim() || localStorage.getItem('gist_token') || '';
     let gistId = document.getElementById('gist-id').value.trim() || localStorage.getItem('gist_id') || '';
     const btn = document.getElementById('btn-sync-up');
 
     if (!token) {
-        if (!isAuto) updateSyncStatus("❌ 错误：请先输入您的 GitHub Token", true);
+        updateSyncStatus("❌ 错误：请先输入您的 GitHub Token", true);
         return;
     }
 
     if (syncInFlight) {
-        if (!isAuto) updateSyncStatus("⏳ 正在同步中，请稍候...", false);
+        updateSyncStatus("⏳ 正在同步中，请稍候...", false);
         return;
     }
     syncInFlight = true;
 
-    if (!isAuto && btn) {
+    if (btn) {
         btn.disabled = true;
-        btn.innerHTML = `<span class="animate-spin mr-2">🌀</span>正在加密打包上传...`;
+        btn.innerHTML = `<span class="animate-spin mr-2">🌀</span>正在上传...`;
         updateSyncStatus("📡 正在连接 GitHub 服务器...");
     }
 
@@ -2993,7 +3311,7 @@ window.syncToCloud = async function(isAuto = false, isFlush = false) {
         let url = 'https://api.github.com/gists';
         let method = 'POST';
 
-        // 🛡️ 防呆：已绑定 Gist 时，先拉取云端数据比对，再决定是否覆盖
+        // 已绑定 Gist 时，必须成功读取并检查云端后才能继续上传。
         if (gistId) {
             url = `https://api.github.com/gists/${gistId}`;
             method = 'PATCH';
@@ -3005,39 +3323,36 @@ window.syncToCloud = async function(isAuto = false, isFlush = false) {
                 }
             });
 
-            if (checkRes.ok) {
+            if (!checkRes.ok) {
+                if (checkRes.status === 404) throw new Error("找不到该 Gist，请检查 ID；未执行上传");
+                if (checkRes.status === 401) throw new Error("Token 验证失败；未执行上传");
+                throw new Error(`无法检查云端（状态码: ${checkRes.status}），为保护数据已停止上传`);
+            }
+            {
                 const cloudData = await checkRes.json();
                 const fileObj = cloudData.files && cloudData.files["japanese_vocab_backup.json"];
-                if (fileObj && fileObj.content) {
+            if (!fileObj || !fileObj.content) throw new Error("云端备份文件不存在或内容不可读取；未执行上传");
+            {
                     const parsedCloud = JSON.parse(fileObj.content);
 
-                    // 防呆 1：云端比本机新 → 拦截，防止误覆盖别的设备传过的数据
-                    if (parsedCloud.lastSync && localLastSync && new Date(parsedCloud.lastSync) > new Date(localLastSync)) {
-                        throw new Error("云端数据比本机更新！请先从云端拉取最新进度，以免误覆盖。");
+                    if (!parsedCloud.notebooks || typeof parsedCloud.notebooks !== 'object' || Array.isArray(parsedCloud.notebooks)) {
+                        throw new Error("云端备份格式异常；未执行上传");
                     }
-
-                    // 防呆 2：本机卡片数不足云端一半 → 疑似数据丢失。
-                    // 自动模式直接拦截；手动模式弹确认框，允许"故意大量删卡"的用户放行
-                    let cloudCount = 0;
-                    Object.values(parsedCloud.notebooks || {}).forEach(list => cloudCount += (list || []).length);
+                    const cloudCount = Object.values(parsedCloud.notebooks).reduce((sum, list) => sum + (Array.isArray(list) ? list.length : 0), 0);
                     const localCount = getAllCardIds().length;
-                    if (cloudCount > 0 && localCount < cloudCount * 0.5) {
-                        if (isAuto) {
-                            throw new Error(`本机单词量(${localCount})远低于云端(${cloudCount})，疑似数据丢失，已拦截上传保护云端数据！`);
+                    if (parsedCloud.lastSync && parsedCloud.lastSync !== localLastSync) {
+                        const reason = localLastSync ? "云端备份在本机上次同步后发生了变化。" : "本机没有可比较的上次同步记录。";
+                        if (!confirm(`${reason}\n云端：${cloudCount} 个单词\n本机：${localCount} 个单词\n\n继续将用本机数据覆盖云端。若要保留云端更新，请取消并先拉取。`)) {
+                            throw new Error("已取消上传，云端数据未更改");
                         }
-                        if (!confirm(`⚠️ 本机单词量(${localCount})远低于云端(${cloudCount})。\n\n如果这是你故意大量删卡，点"确定"继续上传；否则请点"取消"，先执行"从云端拉取并恢复本地"！`)) {
+                    }
+                    if (cloudCount > 0 && localCount < cloudCount * 0.5) {
+                        if (!confirm(`本机单词量（${localCount}）明显少于云端（${cloudCount}）。\n\n仍要用本机数据覆盖云端吗？`)) {
                             throw new Error("已取消上传（数据量异常保护）");
                         }
                     }
                 }
             }
-        }
-
-        // keepalive 仅在页面关闭抢救时启用；body 超过约 60KB 时浏览器会直接拒绝，降级为普通请求
-        const payloadBytes = new TextEncoder().encode(payloadContent).length;
-        const useKeepalive = isFlush && payloadBytes < 60000;
-        if (isFlush && !useKeepalive) {
-            console.warn(`[云同步] 备份体积 ${payloadBytes} 字节超过 keepalive 上限，降级为普通请求，页面关闭时可能发送失败`);
         }
 
         const response = await fetch(url, {
@@ -3046,8 +3361,7 @@ window.syncToCloud = async function(isAuto = false, isFlush = false) {
                 'Accept': 'application/vnd.github.v3+json',
                 'Authorization': `token ${token}`
             },
-            body: JSON.stringify(payload),
-            keepalive: useKeepalive
+            body: JSON.stringify(payload)
         });
 
         if (!response.ok) {
@@ -3056,36 +3370,28 @@ window.syncToCloud = async function(isAuto = false, isFlush = false) {
             throw new Error(`请求失败 (状态码: ${response.status})`);
         }
 
-        if (isFlush) {
-            // 抢救模式不解析响应体：keepalive 响应在页面关闭时不可靠，按成功推进锚点即可
-        } else {
-            const data = await response.json();
-            if (!gistId) {
-                gistId = data.id;
-                document.getElementById('gist-id').value = data.id;
-            }
+        const data = await response.json();
+        if (!gistId) {
+            gistId = data.id;
+            document.getElementById('gist-id').value = data.id;
         }
 
         localStorage.setItem('gist_token', token);
         localStorage.setItem('gist_id', gistId);
 
-        // 更新本机的"云端最后同步时间"锚点：防呆 1 与后续自动上传都依赖它
+        // 记录本机确认同步的云端版本，后续上传用它提示云端是否有变化。
         localLastSync = currentTime;
         localStorage.setItem('japanese_vocab_last_sync', localLastSync);
 
-        if (!isAuto) {
-            updateSyncStatus(`✅ 同步成功！(云端房间号: ${gistId})`);
-            showToast("🎉 数据已安全覆盖并上传至 GitHub 云端！");
-        }
+        updateSyncStatus(`✅ 上传成功：${getAllCardIds().length} 个单词 · ${new Date(currentTime).toLocaleString()} · Gist ${gistId}`);
+        showToast("🎉 本机数据已上传至 GitHub 云端！");
     } catch (err) {
-        if (!isAuto) updateSyncStatus(`❌ 上传失败: ${err.message}`, true);
-        if (isAuto && !isFlush) showToast(`⚠️ 自动上传未完成: ${err.message}`);
-        if (isFlush) console.warn('[云同步] 页面关闭抢救同步失败:', err.message);
+        updateSyncStatus(`❌ 上传失败: ${err.message}`, true);
     } finally {
         syncInFlight = false;
-        if (!isAuto && btn) {
+        if (btn) {
             btn.disabled = false;
-            btn.innerHTML = `<svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg><span>上传并覆盖至云端</span>`;
+            btn.innerHTML = `<svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg><span>用本机数据覆盖云端</span>`;
         }
     }
 }
@@ -3099,6 +3405,12 @@ window.syncFromCloud = async function() {
         updateSyncStatus("❌ 错误：从云端拉取必须同时提供 Token 和 专属 Gist ID", true);
         return;
     }
+
+    if (syncInFlight) {
+        updateSyncStatus("⏳ 正在同步中，请稍候...", false);
+        return;
+    }
+    syncInFlight = true;
 
     btn.disabled = true;
     btn.innerHTML = `<span class="animate-spin mr-2">🌀</span>正在拉取云端数据...`;
@@ -3128,7 +3440,30 @@ window.syncFromCloud = async function() {
 
         const parsedData = JSON.parse(fileObj.content);
 
-        if (parsedData.notebooks) {
+        if (!parsedData.notebooks || typeof parsedData.notebooks !== 'object' || Array.isArray(parsedData.notebooks)) {
+            throw new Error("云端数据格式不合法，无法解析");
+        }
+        const cloudBooks = Object.entries(parsedData.notebooks);
+        if (!cloudBooks.every(([name, cards]) => typeof name === 'string' && Array.isArray(cards) && cards.every(card => card && typeof card === 'object' && typeof card.word === 'string'))) {
+            throw new Error("云端备份结构不完整，已停止恢复以保护本机数据");
+        }
+        const cloudCount = cloudBooks.reduce((sum, [, cards]) => sum + cards.length, 0);
+        const localCount = getAllCardIds().length;
+        if (!confirm(`即将用云端数据替换本机数据。\n云端：${cloudCount} 个单词\n本机：${localCount} 个单词\n\n继续前会自动保存一份本机恢复备份。`)) {
+            throw new Error("已取消拉取，本机数据未更改");
+        }
+
+        // 先保存可恢复副本；备份写入失败时停止，不替换本地数据。
+        const backup = {
+            savedAt: new Date().toISOString(),
+            notebooks,
+            activeNotebook,
+            tagOrder: tagOrder || []
+        };
+        localStorage.setItem('japanese_vocab_pre_cloud_restore_backup', JSON.stringify(backup));
+        document.getElementById('btn-restore-sync-backup')?.classList.remove('hidden');
+
+        {
             notebooks = parsedData.notebooks;
             if (!notebooks[activeNotebook]) {
                 activeNotebook = Object.keys(notebooks)[0] || "日常";
@@ -3138,7 +3473,7 @@ window.syncFromCloud = async function() {
                 tagOrder = parsedData.tagOrder;
                 saveTagOrder();
             }
-            saveData(true); // 跳过自动上传防抖：刚拉取下来的数据不需要再传回云端
+            saveData();
             renderNotebookTabs();
             renderGlobalTags();
             renderCards();
@@ -3146,22 +3481,20 @@ window.syncFromCloud = async function() {
             localStorage.setItem('gist_token', token);
             localStorage.setItem('gist_id', gistId);
 
-            // 拉取成功后更新锚点：否则本机的"最后同步时间"停留在过去，
-            // 之后任何上传都会被防呆 1 误拦（云端时间 > 本机锚点）
+            // 记录本机确认拉取的云端版本，后续上传可提示云端已变化。
             localLastSync = parsedData.lastSync || new Date().toISOString();
             localStorage.setItem('japanese_vocab_last_sync', localLastSync);
 
-            updateSyncStatus(`✅ 数据恢复成功！(最后云端同步时间: ${new Date(parsedData.lastSync).toLocaleString()})`);
-            showToast("🎉 数据已从云端拉取，本地卡片库已全面更新！");
-        } else {
-            throw new Error("云端数据格式不合法，无法解析");
+            updateSyncStatus(`✅ 拉取成功：${cloudCount} 个单词 · ${parsedData.lastSync ? new Date(parsedData.lastSync).toLocaleString() : '云端未记录时间'}`);
+            showToast("🎉 已从云端拉取数据，当前浏览器中的单词本已替换为云端版本。");
         }
 
     } catch (err) {
         updateSyncStatus(`❌ 拉取失败: ${err.message}`, true);
     } finally {
+        syncInFlight = false;
         btn.disabled = false;
-        btn.innerHTML = `<svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg><span>从云端拉取并恢复本地</span>`;
+        btn.innerHTML = `<svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l4 4m0 0l-4-4m4 4V4"></path></svg><span>用云端数据替换本机</span>`;
     }
 }
 
@@ -3179,13 +3512,13 @@ document.getElementById('vocab-form').addEventListener('submit', function(e) {
         notebooks[activeNotebook] = [];
     }
 
-    const getCleanWord = (w) => w.replace(/([^\s\[\]]+)\[([^\]]+)\]/g, '$1');
-    const cleanInputWord = getCleanWord(wordVal);
+    const cleanInputWord = getCleanWordText(wordVal);
+    const duplicateNotebook = findGlobalDuplicateNotebook(wordVal, null, activeNotebook);
 
-    const isDuplicate = notebooks[activeNotebook].some(card => getCleanWord(card.word) === cleanInputWord);
-
-    if (isDuplicate) {
-        showToast(`⚠️ “${cleanInputWord}” 已存在于本册中，请勿重复添加！`);
+    if (duplicateNotebook) {
+        showToast(duplicateNotebook === activeNotebook
+            ? `当前单词本里已经收录了“${cleanInputWord}”，不能重复添加。`
+            : `“${cleanInputWord}”已经收录在「${duplicateNotebook}」单词本中，不能重复添加。`);
         wordInput.select();
         return;
     }
@@ -3274,7 +3607,7 @@ if (flipFab) {
 window.shuffleCards = function() {
     const currentList = notebooks[activeNotebook] || [];
     if (currentList.length <= 1) {
-        showToast("当前本里只有一个单词，不用打乱哦！");
+        showToast("当前单词本不足两个词，无法打乱顺序。");
         return;
     }
     const hadManual = manualCardOrder;
@@ -3287,7 +3620,7 @@ window.shuffleCards = function() {
 window.exportToMD = function() {
     const { filteredList, isGlobalSearch, isGlobalScope } = getDisplayedCards();
     if (filteredList.length === 0) {
-        showToast("当前界面没有可以导出的单词！");
+        showToast("当前筛选结果没有单词可导出。");
         return;
     }
     const { flat: outList, groups } = applyExportSort(filteredList);
@@ -3304,10 +3637,14 @@ window.exportToMD = function() {
     const safeScopeName = scopeName.replace(/[\\\/:*?"<>|]/g, '_');
 
     const sanitizeMdCell = (text) => String(text || '')
-        .replace(/\r\n|\r|\n/g, ' ')
         .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\uFFFE\uFFFF]/g, '')
         .replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/g, '')
-        .replace(/(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, '');
+        .replace(/(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, '')
+        // Markdown 表格以竖线分列；用实体保留原字符，同时避免它变成额外列。
+        // 单元格中的真实换行转为 HTML 换行，确保仍留在同一行表格中。
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/\|/g, '&#124;')
+        .replace(/\r\n|\r|\n/g, '<br>');
 
     let mdContent = `# 📓 日语单词自测练习表 (${scopeName})\n\n`;
     mdContent += `- **导出范围**: ${scopeName}${isGlobalScope ? '（跨单词本）' : ''}\n`;
@@ -3318,7 +3655,7 @@ window.exportToMD = function() {
     mdContent += `> **💡 背诵建议**：你可以直接将此文件导入 Obsidian、Notion 或任何支持 Markdown 的编辑器中进行背诵复习，也可以直接在笔记软件中将其输出为 PDF 打印成纸质版。最右侧的 [ 默写与自测备注栏 ] 保持空白，专门留给你进行手写自测和错词标记。\n\n`;
 
     const mdRow = (item) => {
-        let cleanWord = sanitizeMdCell(item.word).replace(/</g, "&lt;").replace(/>/g, "&gt;");
+        let cleanWord = sanitizeMdCell(item.word);
 
         let formattedWord = cleanWord;
         const bracketRegex = rubyBracketRegex();
@@ -3327,16 +3664,16 @@ window.exportToMD = function() {
             bracketRegex.lastIndex = 0;
             formattedWord = cleanWord.replace(bracketRegex, '<ruby>$1<rt>$2</rt></ruby>');
         } else if (item.kana && item.kana.trim() !== "") {
-            let cleanKana = sanitizeMdCell(item.kana).trim().replace(/</g, "&lt;").replace(/>/g, "&gt;");
+            let cleanKana = sanitizeMdCell(item.kana).trim();
             formattedWord = `<ruby>${cleanWord}<rt>${cleanKana}</rt></ruby>`;
         }
 
         let wordCol = formattedWord;
 
-        let cleanMeaning = sanitizeMdCell(item.meaning).replace(/\|/g, "\\|").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+        let cleanMeaning = sanitizeMdCell(item.meaning);
         let meaningCol = `${cleanMeaning}`;
         if (item.example) {
-            let cleanExample = sanitizeMdCell(item.example).replace(/\|/g, "\\|").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+            let cleanExample = sanitizeMdCell(item.example);
             meaningCol += `<br><span style="font-size: 0.85em; color: #78716c;">*例句: ${cleanExample}*</span>`;
         }
 
@@ -3370,7 +3707,7 @@ window.exportToMD = function() {
         URL.revokeObjectURL(url);
         showToast("🎉 Markdown 练习表导出成功，已开始下载！");
     } catch (err) {
-        showToast("导出失败，请检查浏览器隐私及下载设置。");
+        showToast("无法生成下载文件，请检查浏览器下载设置后重试。");
     }
 }
 
@@ -3392,7 +3729,7 @@ window.chooseExport = function(format) {
 window.exportToJSON = function() {
     const { filteredList, isGlobalSearch, isGlobalScope } = getDisplayedCards();
     if (filteredList.length === 0) {
-        showToast("当前界面没有可以导出的单词！");
+        showToast("当前筛选结果没有单词可导出。");
         return;
     }
     const { flat: outList } = applyExportSort(filteredList);
@@ -3433,7 +3770,7 @@ window.exportToJSON = function() {
         URL.revokeObjectURL(url);
         showToast(`📦 JSON 单词包导出成功（${pack.cards.length} 个单词，${EXPORT_SORT_LABEL[exportSortMode]}），可分享给他人导入！`);
     } catch (err) {
-        showToast("导出失败，请检查浏览器隐私及下载设置。");
+        showToast("无法生成下载文件，请检查浏览器下载设置后重试。");
     }
 }
 
@@ -3447,7 +3784,7 @@ document.addEventListener('click', function(e) {
 window.exportToPDF = function() {
     const { filteredList, isGlobalSearch, isGlobalScope } = getDisplayedCards();
     if (filteredList.length === 0) {
-        showToast("当前界面没有可以导出的单词！");
+        showToast("当前筛选结果没有单词可导出。");
         return;
     }
     const { flat: outList, groups } = applyExportSort(filteredList);
@@ -3600,7 +3937,7 @@ if (shuffleFab) {
     shuffleFab.addEventListener('click', () => {
         const { filteredList } = getDisplayedCards();
         if (filteredList.length <= 1) {
-            showToast("当前视图里只有一个单词，不用打乱哦！");
+            showToast("当前显示的词不足两个，无法打乱顺序。");
             return;
         }
         const hadManual = manualCardOrder;
@@ -3712,30 +4049,6 @@ if (document.fonts && document.fonts.ready) {
 
 // 初始化点击音效开关图标（依据 localStorage 中的 sound_enabled）
 updateSoundIcon();
-
-// ==========================================
-// 📡 云同步自动上传（Gemini 方案第 1、2 组，经安全修订）
-//    - 停止操作 5 分钟后自动上传（saveData 内的防抖触发）
-//    - 页面切走 / 关闭时抢救未上传的进度（keepalive 请求）
-//    刻意未启用"切回页面自动拉取"：那会覆盖本地未上传的修改，
-//    跨设备更新请手动点"从云端拉取并恢复本地"。
-// ==========================================
-function flushPendingAutoSync() {
-    const token = localStorage.getItem('gist_token');
-    const gistId = localStorage.getItem('gist_id');
-    if (!token || !gistId) return;
-    if (!autoSyncTimer) return; // 没有待上传的改动，无需抢救
-
-    clearTimeout(autoSyncTimer);
-    autoSyncTimer = null;
-    // 抢救性同步：keepalive 保证页面关闭后请求仍有机会送达
-    syncToCloud(true, true);
-}
-// visibilitychange 的 hidden 在桌面 / 安卓可靠；iOS Safari 关页面时不保证触发，补 pagehide 双保险
-document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'hidden') flushPendingAutoSync();
-});
-window.addEventListener('pagehide', flushPendingAutoSync);
 
 // ==========================================
 // 🎵 Web Audio 静默预热机制 (消除首次发声延迟)

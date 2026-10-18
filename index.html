@@ -43,10 +43,14 @@
     <link rel="stylesheet" href="style.css">
     <!-- 预加载脚本：根据本地存储或系统偏好设置立即应用暗黑模式，防止闪屏（需保持在 head 内联，不能外移） -->
     <script>
-        if (localStorage.theme === 'dark' || (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
-          document.documentElement.classList.add('dark');
-        } else {
-          document.documentElement.classList.remove('dark');
+        try {
+          if (localStorage.theme === 'dark' || (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+            document.documentElement.classList.add('dark');
+          } else {
+            document.documentElement.classList.remove('dark');
+          }
+        } catch (e) {
+          if (window.matchMedia('(prefers-color-scheme: dark)').matches) document.documentElement.classList.add('dark');
         }
     </script>
 </head>
@@ -377,7 +381,7 @@
                 AI 智能连接设置
             </h3>
             <p class="text-xs text-stone-500 dark:text-stone-400 mb-5 leading-relaxed">
-                您的密钥将安全存放于当前设备浏览器的沙盒中（localStorage），绝对不会上传至任何第三方服务器，请放心配置。
+                API 密钥保存在当前浏览器的 localStorage 中，不会包含在单词本的 GitHub Gist 同步备份里。使用 AI 查词或批量导入时，所选服务商（Gemini 或 DeepSeek）会收到对应密钥和请求内容以处理请求。清除本浏览器的网站数据后，需要重新填写密钥。
             </p>
             
             <!-- 二选一服务商切换开关 -->
@@ -427,7 +431,7 @@
 
         <div class="p-5 flex-grow overflow-y-auto space-y-6 bg-white dark:bg-stone-800 transition-colors">
             <p class="text-xs text-stone-500 dark:text-stone-400 leading-relaxed bg-stone-50 dark:bg-stone-900/50 p-3 rounded-xl border border-stone-200/50 dark:border-stone-700">
-                利用你的 GitHub 私密记事本 (Gist) 实现极简的跨设备同步。在电脑点【上传】，在手机点【拉取】，数据随心漫游！
+                手动同步你的单词本。上传会用本机数据覆盖云端；拉取会用云端数据替换本机，并先保存一份本机恢复备份。
             </p>
 
             <div class="space-y-1.5">
@@ -443,18 +447,25 @@
             </div>
 
             <div class="pt-2 space-y-3">
+                <button id="btn-check-cloud" onclick="checkCloudStatus()" class="w-full py-2.5 bg-stone-100 hover:bg-stone-200 text-stone-700 border border-stone-200 dark:bg-stone-700/50 dark:hover:bg-stone-700 dark:text-stone-200 dark:border-stone-600 rounded-xl font-bold text-sm transition shadow-sm flex items-center justify-center space-x-2">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-4.3-4.3m1.8-5.2a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                    <span>检查云端</span>
+                </button>
+                <div id="cloud-check-result" class="hidden whitespace-pre-line rounded-xl border px-3.5 py-3 text-xs leading-relaxed" aria-live="polite"></div>
+
                 <button id="btn-sync-up" onclick="syncToCloud()" class="w-full py-3 bg-emerald-800 dark:bg-emerald-400/10 hover:bg-emerald-900 dark:hover:bg-emerald-400/20 text-white dark:text-emerald-400 border border-transparent dark:border-emerald-400/25 rounded-xl font-bold text-sm transition shadow-sm flex items-center justify-center space-x-2">
                     <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
-                    <span>上传并覆盖至云端</span>
+                    <span>用本机数据覆盖云端</span>
                 </button>
 
                 <button id="btn-sync-down" onclick="syncFromCloud()" class="w-full py-3 bg-stone-800 dark:bg-stone-700/40 hover:bg-stone-900 dark:hover:bg-stone-700/60 text-white dark:text-stone-200 border border-transparent dark:border-stone-600/50 rounded-xl font-bold text-sm transition shadow-sm flex items-center justify-center space-x-2">
                     <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
-                    <span>从云端拉取并恢复本地</span>
+                    <span>用云端数据替换本机</span>
                 </button>
             </div>
 
             <div id="sync-status" class="text-center text-xs font-semibold pt-4 mt-2 border-t border-stone-100 dark:border-stone-700 empty:hidden"></div>
+            <button id="btn-restore-sync-backup" onclick="restorePreCloudBackup()" class="hidden w-full py-2.5 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200 dark:bg-amber-900/20 dark:hover:bg-amber-900/30 dark:text-amber-300 dark:border-amber-800/50 rounded-xl font-bold text-xs transition">恢复拉取前的本机备份</button>
         </div>
     </div>
 
@@ -537,7 +548,7 @@
                 <input type="file" id="batch-image-upload" accept="image/*" class="hidden" onchange="handleBatchImageUpload(event)">
                 <button type="button" onclick="document.getElementById('batch-image-upload').click()" class="px-3.5 py-2 bg-stone-100 dark:bg-stone-900 hover:bg-stone-200 dark:hover:bg-stone-700 text-stone-700 dark:text-stone-300 rounded-lg text-xs font-semibold transition flex items-center space-x-1.5 border border-stone-200 dark:border-stone-700 shadow-sm active:scale-95">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
-                    <span>上传笔记照片</span>
+                    <span>上传笔记照片（最大 10 MB）</span>
                 </button>
                 <div id="batch-image-preview-container" class="hidden relative group">
                     <img id="batch-image-preview" class="h-9 w-9 object-cover rounded shadow-sm border border-stone-300 dark:border-stone-600">
@@ -673,6 +684,19 @@
             <div class="flex justify-end space-x-3">
                 <button onclick="closeDeleteNotebookConfirm()" class="px-4 py-2 border border-stone-200 dark:border-stone-600 rounded-xl text-xs text-stone-500 dark:text-stone-400 hover:bg-stone-50 dark:hover:bg-stone-700 transition">取消</button>
                 <button onclick="submitDeleteNotebook()" class="px-5 py-2 bg-danger-600 dark:bg-danger-700 text-white rounded-xl text-xs font-semibold hover:bg-danger-700 dark:hover:bg-danger-600 transition shadow-sm">确认永久删除</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 本机数据读取失败时的恢复入口 -->
+    <div id="storage-recovery-modal" class="fixed inset-0 bg-black/70 flex items-center justify-center hidden z-[90] p-4">
+        <div class="bg-white dark:bg-stone-800 rounded-2xl border border-stone-200 dark:border-stone-700 p-6 w-full max-w-md shadow-2xl">
+            <h3 class="text-base font-bold text-danger-600 dark:text-danger-400 mb-3">本机单词数据无法读取</h3>
+            <p class="text-xs text-stone-600 dark:text-stone-300 leading-relaxed mb-5">网页没有自动覆盖这份数据。请先下载原始副本保存好，再继续打开单词本；网页会优先尝试读取其他可用的本机数据，没有时才使用示例数据。</p>
+            <p id="storage-recovery-detail" class="text-xs text-stone-500 dark:text-stone-400 leading-relaxed whitespace-pre-line mb-5"></p>
+            <div class="flex flex-col sm:flex-row justify-end gap-2">
+                <button id="storage-recovery-download" onclick="downloadCorruptLocalData()" class="px-4 py-2.5 bg-stone-100 hover:bg-stone-200 dark:bg-stone-700 dark:hover:bg-stone-600 text-stone-700 dark:text-stone-200 rounded-xl text-xs font-semibold">下载原始数据副本</button>
+                <button id="storage-recovery-continue" onclick="continueWithDefaultData()" disabled class="px-4 py-2.5 bg-danger-600 hover:bg-danger-700 dark:bg-danger-700 dark:hover:bg-danger-600 text-white rounded-xl text-xs font-semibold disabled:opacity-40 disabled:cursor-not-allowed">继续打开单词本</button>
             </div>
         </div>
     </div>
