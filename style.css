@@ -74,7 +74,6 @@ body {
     z-index: 999;
     opacity: .97;
     border-radius: 1rem;
-    transform: scale(1.04);
     box-shadow: 0 18px 38px rgba(28, 25, 23, .26);
     will-change: transform;
     cursor: grabbing;
@@ -86,16 +85,82 @@ body {
     box-shadow: 0 4px 12px rgba(28, 25, 23, .12);
 }
 
-/* 原位留下的占位：半透明 + 虚线描边，指明"松手会落在这里" */
+/* 拖动中的占位：保留原尺寸供其它卡片让位，但隐藏原卡片，形成空白位置。 */
 .drag-placeholder {
-    opacity: .26;
-    outline: 2px dashed rgba(5, 150, 105, .6);
-    outline-offset: 3px;
+    opacity: 0;
     border-radius: 0.75rem;
 }
-.dark .drag-placeholder {
-    outline-color: rgba(45, 212, 191, .6);
+
+/* 顶部标签整理模式：标签胶囊做错拍摆动，外层包装保留 FLIP 位移动画。 */
+.tag-sort-item { display: inline-flex; flex: none; -webkit-touch-callout: none; }
+.tag-wiggle-group { position: relative; display: inline-flex; flex: none; }
+.tag-edit-badge {
+    display: none;
+    position: absolute;
+    z-index: 2;
+    top: -5px;
+    right: -5px;
+    width: 18px;
+    height: 18px;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+    border-radius: 9999px;
+    color: #28735c;
+    background: rgba(5, 150, 105, .09);
+    box-shadow: none;
+    cursor: pointer;
 }
+.dark .tag-edit-badge { color: #86efac; background: rgba(52, 211, 153, .12); }
+.tag-edit-badge:hover { background: rgba(5, 150, 105, .16); color: #047857; }
+.dark .tag-edit-badge:hover { background: rgba(52, 211, 153, .2); color: #a7f3d0; }
+.tag-edit-badge:focus-visible { outline: 2px solid #10b981; outline-offset: 2px; }
+body.tag-organize-mode #global-tags-filter { column-gap: 1rem; row-gap: 1rem; }
+body.tag-organize-mode .tag-edit-badge { display: flex; }
+body.tag-organize-mode .tag-wiggle-group > [data-tag-chip] {
+    background-color: rgba(5, 150, 105, .055);
+    color: #28735c;
+}
+.dark body.tag-organize-mode .tag-wiggle-group > [data-tag-chip] {
+    background-color: rgba(52, 211, 153, .075);
+    color: #86efac;
+}
+body.tag-organize-mode #tag-organize-hint { display: block; }
+
+/* 被拿起的标签克隆跟随指针；原位置保留透明占位。 */
+.tag-drag-ghost {
+    pointer-events: none;
+    z-index: 1000;
+    opacity: .97;
+    box-shadow: 0 12px 28px rgba(28, 25, 23, .22);
+    border-radius: 9999px;
+    will-change: transform;
+    cursor: grabbing;
+}
+.tag-drag-landing {
+    opacity: 1;
+    box-shadow: 0 3px 10px rgba(28, 25, 23, .12);
+}
+.tag-drag-placeholder { opacity: 0 !important; }
+body.tag-dragging,
+body.tag-dragging * {
+    cursor: grabbing !important;
+    user-select: none;
+    -webkit-user-select: none;
+}
+.tag-rename-inline {
+    width: 8rem;
+    max-width: 60vw;
+    padding: .375rem .75rem;
+    border: 1px solid rgba(5, 150, 105, .45);
+    border-radius: .5rem;
+    outline: none;
+    color: #065f46;
+    background: #fff;
+    font-size: .75rem;
+    font-weight: 700;
+}
+.dark .tag-rename-inline { color: #a7f3d0; background: #1c1917; }
 
 /* 拖到哪都显示抓手光标，避免拖拽过程中光标乱跳 */
 body.card-dragging,
@@ -243,9 +308,9 @@ rt {
     left: 0;
     background: linear-gradient(to right, #fcfbf7, rgba(252, 251, 247, 0));
 }
-/* 右端留出标签管理齿轮按钮的位置（约 1.75rem），渐隐停在标签栏右边缘 */
+/* 渐隐停在标签栏右边缘 */
 .tag-fade-overlay-right {
-    right: 1.75rem;
+    right: 0;
     background: linear-gradient(to left, #fcfbf7, rgba(252, 251, 247, 0));
 }
 .dark .tag-fade-overlay-left {
@@ -522,46 +587,6 @@ rt {
 }
 #cards-grid[data-compact="true"] ruby {
     line-height: 1.55;
-}
-
-/* 删除按钮默认隐藏，鼠标悬停该行才出现。
-   触屏没有 hover，"可点"必须有常驻线索，故 @media (hover: none) 下常驻显示。 */
-#tag-manager-list .tag-del-btn {
-    opacity: 0;
-    transition: opacity .15s ease, color .15s ease, background-color .15s ease;
-}
-#tag-manager-list .tag-row:hover .tag-del-btn,
-#tag-manager-list .tag-del-btn:focus-visible {
-    opacity: 1;
-}
-@media (hover: none) {
-    #tag-manager-list .tag-del-btn { opacity: 1; }
-}
-
-/* 词数列用等宽数字，纵向对齐后才好比较 */
-#tag-manager-list .tag-count { font-variant-numeric: tabular-nums; }
-
-/* 「标签名可以点击改名」的提示只靠两处安静的表达，不加下划线也不加图标：
-   ① hover 时文字由 stone-700 加深到 stone-900（下面这条 transition）；
-   ② 光标变成文本光标（cursor-text，写在元素类里）。
-   曾经的 dotted 下划线 + 14px 小铅笔在正文里非常扎眼，14px 下铅笔笔画还会糊成一个点。 */
-#tag-manager-list .tag-name-text {
-    transition: color .15s ease;
-    /* 显式写死光标：Tailwind 的 cursor-text 在这条链路上没生效（实测 computed 仍是 auto） */
-    cursor: text;
-}
-#tag-manager-list .tag-name-cell:hover .tag-name-text {
-    color: #1c1917;
-}
-.dark #tag-manager-list .tag-name-cell:hover .tag-name-text {
-    color: #fafaf9;
-}
-
-/* 聚焦时只加描边、不换底色。此前 focus-within 会把背景由透明切成纯白，
-   而透明底色可走子像素抗锯齿、纯色底色走灰度抗锯齿，12px 粗体切换后
-   视觉上就是"字变糊了"。保持底色一致即可根除。 */
-#tag-manager-list input:focus {
-    -webkit-font-smoothing: antialiased;
 }
 
 /* —— 防困小改动：标记「已掌握」成功时的浮层小动效 ——

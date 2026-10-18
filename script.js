@@ -87,7 +87,7 @@ let localLastSync = safeStorageGet('japanese_vocab_last_sync');
 // 🏷️ 标签的自定义顺序
 // 标签本身没有独立存储（是从各卡 tags 临时聚合的派生数据），所以"自定义顺序"
 // 需要额外一份持久化的名单 tagOrder（只存标签名的先后）。
-// 它是唯一的排序方式，同时作用于：标签管理面板、顶部标签筛选栏、编辑卡片的历史标签建议条。
+// 它是唯一的排序方式，同时作用于顶部标签筛选栏和编辑卡片的历史标签建议条。
 // ==========================================
 const TAG_ORDER_KEY = 'japanese_vocab_tag_order';
 let tagOrder = null;
@@ -132,6 +132,10 @@ const DRAG_FLIP_MAX_ITEMS = 120;    // 超过这么多张就不做让位动画�
 let manualCardOrder = false;        // 是否手动拖过（用于「打乱顺序」时给不同的提示）
 let dragState = null;
 let suppressCardClickUntil = 0;     // 起拖过的那一次抬手会紧跟着一个 click，需要掐掉
+let tagDragState = null;
+let suppressTagClickUntil = 0;
+let tagOrganizeMode = false;
+let tagWiggleAnimations = [];
 
 // 只有选中标签时才允许拖拽
 function isDragSortEnabled() {
@@ -337,7 +341,7 @@ function loadData() {
     if (savedToken) document.getElementById('gist-token').value = savedToken;
     if (savedGistId) document.getElementById('gist-id').value = savedGistId;
 
-    renderNotebookTabs();
+    renderNotebookMenu();
     renderCards();
     return true;
 }
@@ -529,10 +533,12 @@ function renderGlobalTags() {
     const allTags = new Set(tagCounts.keys());
 
     activeTagFilters = activeTagFilters.filter(t => allTags.has(t));
+    document.body.classList.toggle('tag-organize-mode', tagOrganizeMode);
 
-    // 与标签管理面板共用同一套自定义顺序
+    // 使用与卡片编辑历史标签建议条相同的自定义顺序
     const tagsArray = getOrderedTags(tagCounts);
     container.innerHTML = '';
+    if (tagOrganizeMode) stopTagWiggle();
     if (tagsArray.length === 0) {
         updateTagScrollFade();
         return;
@@ -545,11 +551,21 @@ function renderGlobalTags() {
     const allBtn = document.createElement('button');
     allBtn.textContent = '全部';
     allBtn.className = activeTagFilters.length === 0 ? activeCls : inactiveCls;
-    allBtn.addEventListener('click', () => clearTagFilters());
+    allBtn.addEventListener('click', () => {
+        if (!tagOrganizeMode) clearTagFilters();
+    });
     container.appendChild(allBtn);
 
     tagsArray.forEach(tag => {
+        const item = document.createElement('span');
+        item.className = 'tag-sort-item';
+        item.dataset.tag = tag;
+        const wiggleGroup = document.createElement('span');
+        wiggleGroup.className = 'tag-wiggle-group';
         const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.dataset.tagChip = 'true';
+        btn.className = activeTagFilters.includes(tag) ? activeCls : inactiveCls;
         const isActive = activeTagFilters.includes(tag);
         // 选中时在标签名后显示总词数（全部单词本、不分掌握状态），未选中保持纯净
         btn.textContent = tag;
@@ -559,14 +575,31 @@ function renderGlobalTags() {
             count.textContent = tagCounts.get(tag);
             btn.appendChild(count);
         }
-        btn.className = isActive ? activeCls : inactiveCls;
         // 无论选中与否都带上完整名称：标签过长会被 truncate 截断，靠 tooltip 补全
         btn.title = isActive
             ? `${tag} · 共 ${tagCounts.get(tag)} 个单词带此标签（全部单词本）`
             : tag;
-        btn.addEventListener('click', () => toggleTagFilter(tag));
-        container.appendChild(btn);
+        btn.addEventListener('click', () => {
+            if (!tagOrganizeMode) toggleTagFilter(tag);
+        });
+        wiggleGroup.appendChild(btn);
+
+        const editBtn = document.createElement('button');
+        editBtn.type = 'button';
+        editBtn.className = 'tag-edit-badge';
+        editBtn.title = `修改标签「${tag}」名称`;
+        editBtn.setAttribute('aria-label', `修改标签「${tag}」名称`);
+        editBtn.appendChild(makeTagIcon('M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L8 18l-4 1 1-4Z', 'w-3 h-3'));
+        editBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            startGlobalTagRename(tag);
+        });
+        wiggleGroup.appendChild(editBtn);
+        item.appendChild(wiggleGroup);
+        container.appendChild(item);
     });
+
+    if (tagOrganizeMode) startTagWiggle();
 
     if (!container.dataset.scrollBound) {
         container.dataset.scrollBound = '1';
@@ -581,8 +614,46 @@ function renderGlobalTags() {
     updateTagScrollFade();
 }
 
+function startGlobalTagRename(oldTag) {
+    if (!tagOrganizeMode) return;
+    const container = document.getElementById('global-tags-filter');
+    const item = container && Array.from(container.querySelectorAll('.tag-sort-item')).find(el => el.dataset.tag === oldTag);
+    const button = item && item.querySelector('button[data-tag-chip]');
+    if (!item || !button) return;
+
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.value = oldTag;
+    input.className = 'tag-rename-inline';
+    input.setAttribute('aria-label', `修改标签「${oldTag}」名称`);
+    input.dataset.noDrag = 'true';
+    button.replaceWith(input);
+    input.focus();
+    input.select();
+
+    let done = false;
+    const finish = (save) => {
+        if (done) return;
+        done = true;
+        const nextTag = input.value.trim();
+        if (save && !nextTag) {
+            showToast('标签名不能为空');
+            renderGlobalTags();
+        } else if (save && nextTag !== oldTag) {
+            renameTagGlobally(oldTag, nextTag);
+        } else {
+            renderGlobalTags();
+        }
+    };
+    input.addEventListener('keydown', e => {
+        if (e.key === 'Enter') { e.preventDefault(); finish(true); }
+        if (e.key === 'Escape') { e.preventDefault(); finish(false); }
+    });
+    input.addEventListener('blur', () => finish(true));
+}
+
 // ==========================================
-// 🏷️ 标签统计与批量管理（齿轮入口 → 「标签管理」面板）
+// 🏷️ 标签统计与顺序管理
 // 标签是从所有卡片的 tags 聚合而来的派生数据；改名 = 全库替换 + 撞名自动合并
 // ==========================================
 
@@ -607,7 +678,7 @@ function saveTagOrder() {
 }
 
 // 对账：tagOrder 与"当前实际存在的标签"对齐——已消失的剔除，新出现的补到最前面。
-// 每次取排序结果前都跑一遍，所以任何入口（加卡打新标签 / 改名 / 删除 / 云同步）都不用各自维护。
+// 每次取排序结果前都跑一遍，所以任何入口（加卡打新标签 / 改名 / 云同步）都不用各自维护。
 function syncTagOrder(allTags) {
     const alive = new Set(allTags);
     let order = (Array.isArray(tagOrder) ? tagOrder : [])
@@ -632,100 +703,6 @@ function getOrderedTags(counts) {
     return tagOrder.slice();
 }
 
-// 上下箭头：在全局顺序里与相邻项交换
-window.moveTag = function(tag, dir) {
-    syncTagOrder(Array.from(getTagCounts().keys()));
-    const i = tagOrder.indexOf(tag);
-    const j = i + dir;
-    if (i < 0 || j < 0 || j >= tagOrder.length) return;
-    [tagOrder[i], tagOrder[j]] = [tagOrder[j], tagOrder[i]];
-    saveTagOrder();
-    renderTagManagerList();
-    renderGlobalTags();
-    renderEditTagSuggestionsIfOpen();
-}
-
-window.openTagManager = function() {
-    const modal = document.getElementById('tag-manager-modal');
-    if (!modal) return;
-    // 打开时清空搜索词：否则下次打开会莫名只剩几条，且箭头因过滤被隐藏
-    const searchEl = document.getElementById('tag-manager-search');
-    if (searchEl) searchEl.value = '';
-    renderTagManagerList();
-    modal.classList.remove('hidden');
-    modal.classList.add('flex');
-}
-
-window.closeTagManager = function() {
-    const modal = document.getElementById('tag-manager-modal');
-    if (!modal) return;
-    modal.classList.add('hidden');
-    modal.classList.remove('flex');
-}
-
-function renderTagManagerList() {
-    const list = document.getElementById('tag-manager-list');
-    const emptyEl = document.getElementById('tag-manager-empty');
-    if (!list) return;
-
-    const counts = getTagCounts();
-    const allTags = getOrderedTags(counts);
-
-    const searchEl = document.getElementById('tag-manager-search');
-    const query = searchEl ? searchEl.value.trim().toLowerCase() : '';
-    const tags = query ? allTags.filter(t => t.toLowerCase().includes(query)) : allTags;
-
-    list.innerHTML = '';
-
-    if (tags.length === 0) {
-        if (emptyEl) {
-            emptyEl.textContent = allTags.length === 0
-                ? '还没有任何标签，去编辑单词卡片添加吧。'
-                : '没有匹配的标签';
-            emptyEl.classList.remove('hidden');
-        }
-        return;
-    }
-    if (emptyEl) emptyEl.classList.add('hidden');
-
-    // 有搜索词时隐藏箭头：屏幕上看到的是过滤后的行，而"上移"是与全局相邻项交换，
-    // 点了之后标签跳到看不见的位置，比干脆不给箭头更糟。
-    const showArrows = !query;
-
-    tags.forEach((tag, idx) => {
-        const row = document.createElement('div');
-        row.className = 'tag-row flex items-center gap-2 px-3 py-2 rounded-lg bg-stone-50 dark:bg-stone-900/60 border border-stone-200/70 dark:border-stone-700/70';
-        row.dataset.tag = tag;
-
-        // 名称列：默认纯文本，点击才就地变输入框。
-        // 不再挂铅笔图标：14px 下它的笔画糊成一团，看着像正文里多了一个点。
-        // "可点"由三处表达：cursor-text、hover 文字加深（见 style.css）、title 提示。
-        const nameCell = document.createElement('div');
-        nameCell.className = 'tag-name-cell flex-1 min-w-0 flex items-center';
-        const nameText = document.createElement('span');
-        nameText.className = 'tag-name-text truncate text-xs font-semibold text-stone-700 dark:text-stone-200 cursor-text';
-        nameText.textContent = tag;
-        nameText.title = '点击即可修改标签名（作用于全部单词本）';
-        nameCell.appendChild(nameText);
-        nameCell.addEventListener('click', () => startTagRename(nameCell, tag));
-        row.appendChild(nameCell);
-
-        // 词数列：固定宽度 + 右对齐，纵向一眼可比大小
-        const countEl = document.createElement('span');
-        countEl.className = 'tag-count shrink-0 w-10 text-right text-[11px] text-stone-400 dark:text-stone-500';
-        countEl.textContent = counts.get(tag);
-        row.appendChild(countEl);
-
-        if (showArrows) {
-            row.appendChild(makeTagArrowButton(tag, -1, idx === 0));
-            row.appendChild(makeTagArrowButton(tag, 1, idx === tags.length - 1));
-        }
-
-        row.appendChild(makeTagDeleteButton(tag, counts.get(tag)));
-        list.appendChild(row);
-    });
-}
-
 // SVG 必须用 createElementNS 创建：createElement('svg') 得到的是 HTMLUnknownElement，
 // 浏览器不按图形规则渲染，图标会整个消失。
 function makeTagIcon(pathD, cls) {
@@ -745,72 +722,10 @@ function makeTagIcon(pathD, cls) {
     return svg;
 }
 
-function makeTagArrowButton(tag, dir, disabled) {
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'shrink-0 p-0.5 rounded text-stone-400 dark:text-stone-500 hover:text-stone-800 dark:hover:text-stone-200 transition-colors disabled:opacity-25 disabled:cursor-not-allowed';
-    btn.title = dir < 0 ? `把「${tag}」上移` : `把「${tag}」下移`;
-    btn.disabled = disabled;
-    btn.appendChild(makeTagIcon(dir < 0 ? 'M6 15l6-6 6 6' : 'M6 9l6 6 6-6', 'w-3.5 h-3.5'));
-    btn.addEventListener('click', () => moveTag(tag, dir));
-    return btn;
-}
-
-function makeTagDeleteButton(tag, count) {
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'tag-del-btn shrink-0 p-1 rounded-md text-stone-400 dark:text-stone-500 hover:text-danger-600 dark:hover:text-danger-400 hover:bg-danger-50 dark:hover:bg-danger-900/20 transition-colors';
-    btn.title = `删除标签「${tag}」（影响 ${count} 个单词，8 秒内可撤销）`;
-    btn.appendChild(makeTagIcon('M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14', 'w-3.5 h-3.5'));
-    // 防误触：按下与抬起若位置偏移超过 8px（触屏滑动/鼠标拖拽），视为滑动而非点击
-    let downX = 0, downY = 0, downAt = 0;
-    btn.addEventListener('pointerdown', (e) => {
-        downX = e.clientX; downY = e.clientY; downAt = Date.now();
-    });
-    btn.addEventListener('click', (e) => {
-        const moved = Math.abs(e.clientX - downX) > 8 || Math.abs(e.clientY - downY) > 8;
-        const tooSlow = Date.now() - downAt > 800; // 长按不触发，避免"按着犹豫"的误判
-        if (moved || tooSlow) { e.preventDefault(); e.stopPropagation(); return; }
-        deleteTagGlobally(tag, count);
-    });
-    return btn;
-}
-
-// 点击标签名 → 就地换成输入框；失焦/回车提交，Esc 取消。
-// 输入框用 w-full 而不是按文字宽度实测——后者正是铅笔位置参差的根源。
-function startTagRename(cell, oldTag) {
-    if (cell.querySelector('input')) return;
-    const input = document.createElement('input');
-    input.type = 'text';
-    input.value = oldTag;
-    input.className = 'w-full bg-transparent border-0 p-0 text-xs font-semibold text-stone-700 dark:text-stone-200 focus:outline-none';
-    cell.innerHTML = '';
-    cell.appendChild(input);
-    input.focus();
-    input.select();
-
-    let done = false;
-    const commit = () => {
-        if (done) return;
-        done = true;
-        const next = input.value.trim();
-        if (next && next !== oldTag) {
-            renameTagGlobally(oldTag, next);
-        } else {
-            renderTagManagerList();
-        }
-    };
-    input.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
-        if (e.key === 'Escape') { done = true; renderTagManagerList(); }
-    });
-    input.addEventListener('blur', commit);
-}
-
 // 全库改名：所有单词本中带 oldTag 的卡片替换为 newTag；newTag 已存在则自动合并
 window.renameTagGlobally = function(oldTag, newTag) {
     if (!newTag) { showToast('标签名不能为空'); return; }
-    if (newTag === oldTag) { renderTagManagerList(); return; }
+    if (newTag === oldTag) return;
 
     let affected = 0;
     Object.keys(notebooks).forEach(bookName => {
@@ -827,7 +742,7 @@ window.renameTagGlobally = function(oldTag, newTag) {
         });
     });
 
-    if (affected === 0) { renderTagManagerList(); return; }
+    if (affected === 0) return;
 
     // 自定义顺序里原地改名，不能让 syncTagOrder 把它当成"新标签"顶到最前面
     if (Array.isArray(tagOrder)) {
@@ -846,7 +761,6 @@ window.renameTagGlobally = function(oldTag, newTag) {
     saveData();
     renderGlobalTags();
     renderCards();
-    renderTagManagerList();
     renderEditTagSuggestionsIfOpen();
     showToast(merged
         ? `已把「${oldTag}」合并进「${newTag}」，共影响 ${affected} 个单词`
@@ -897,50 +811,6 @@ window.submitConfirmModal = function() {
     if (cb) cb();
 }
 
-// 全库删除标签：从所有卡片移除（卡片本身保留）。
-// 采用「立即执行 + Toast 撤销」而非叠一层确认弹窗——标签是派生数据，
-// 误删的补救成本高，撤销比事后确认更贴合真实使用节奏。
-function deleteTagGlobally(tag, count) {
-    // 留一份可回滚的快照：每个被改动的卡片记录它原本的 tags
-    const snapshot = [];
-    Object.keys(notebooks).forEach(bookName => {
-        (notebooks[bookName] || []).forEach(card => {
-            if (Array.isArray(card.tags) && card.tags.includes(tag)) {
-                snapshot.push({ card, tags: card.tags.slice() });
-            }
-        });
-    });
-
-    const filterSnapshot = activeTagFilters.slice();
-
-    // 执行删除
-    snapshot.forEach(({ card }) => {
-        card.tags = card.tags.filter(t => t !== tag);
-    });
-    activeTagFilters = activeTagFilters.filter(t => t !== tag);
-
-    saveData();
-    renderGlobalTags();
-    renderCards();
-    renderTagManagerList();
-    renderEditTagSuggestionsIfOpen();
-
-    showToast(`已从 ${snapshot.length} 个单词上移除标签「${tag}」`, () => {
-        // 撤销：把每个卡片原本的 tags 覆盖回去（不区分是否被后续操作改过）
-        snapshot.forEach(({ card, tags }) => { card.tags = tags.slice(); });
-        activeTagFilters = filterSnapshot;
-
-        saveData();
-        renderGlobalTags();
-        renderCards();
-        renderTagManagerList();
-        renderEditTagSuggestionsIfOpen();
-
-        showToast('撤销成功，标签已恢复');
-    }, 8000);
-}
-
-// 若编辑卡片弹窗正开着，同步刷新其标签建议列表，避免显示已被删除的标签
 function renderEditTagSuggestionsIfOpen() {
     const modal = document.getElementById('edit-card-modal');
     if (modal && !modal.classList.contains('hidden')) {
@@ -978,6 +848,191 @@ window.toggleTagFilter = function(tag) {
     }
     renderGlobalTags();
     renderCards();
+}
+
+function enterTagOrganizeMode() {
+    if (tagOrganizeMode) return;
+    tagOrganizeMode = true;
+    document.body.classList.add('tag-organize-mode');
+    startTagWiggle();
+}
+
+function exitTagOrganizeMode() {
+    if (!tagOrganizeMode) return;
+    if (tagDragState) cancelTagDrag();
+    stopTagWiggle();
+    tagOrganizeMode = false;
+    document.body.classList.remove('tag-organize-mode');
+}
+
+function startTagWiggle() {
+    stopTagWiggle();
+    if (!tagOrganizeMode) return;
+    document.querySelectorAll('#global-tags-filter .tag-wiggle-group').forEach((el, index) => {
+        if (typeof el.animate !== 'function') return;
+        const duration = 520 + (index % 4) * 65;
+        const direction = index % 2 ? 1 : -1;
+        const animation = el.animate(
+            [
+                { transform: `rotate(${direction * -4}deg)`, offset: 0 },
+                { transform: `rotate(${direction * 3.4}deg)`, offset: 0.34 },
+                { transform: `rotate(${direction * -3.1}deg)`, offset: 0.72 },
+                { transform: `rotate(${direction * 4}deg)`, offset: 1 }
+            ],
+            { duration, easing: 'ease-in-out', iterations: Infinity, direction: 'alternate', delay: index % 2 ? -170 : 0 }
+        );
+        tagWiggleAnimations.push(animation);
+    });
+}
+
+function stopTagWiggle() {
+    tagWiggleAnimations.forEach(animation => animation.cancel());
+    tagWiggleAnimations = [];
+}
+
+// 长按进入 iOS 风格整理模式；标签自身负责让位，标签胶囊做错拍摆动。
+function onTagDragPointerDown(e) {
+    if (tagDragState || (typeof e.button === 'number' && e.button !== 0)) return;
+    if (e.target && e.target.closest && e.target.closest('.tag-edit-badge, .tag-rename-inline')) return;
+    const item = e.target && e.target.closest ? e.target.closest('#global-tags-filter .tag-sort-item') : null;
+    if (!item || !item.parentElement) return;
+
+    tagDragState = {
+        el: item,
+        tag: item.dataset.tag,
+        container: item.parentElement,
+        startX: e.clientX,
+        startY: e.clientY,
+        rect: null,
+        started: false,
+        isTouch: e.pointerType === 'touch',
+        wasOrganizing: tagOrganizeMode,
+        overEl: null,
+        overAfter: null,
+        timer: tagOrganizeMode ? null : setTimeout(() => {
+            enterTagOrganizeMode();
+            beginTagDrag();
+        }, DRAG_LONG_PRESS_MS),
+        ghost: null
+    };
+    window.addEventListener('pointermove', onTagDragPointerMove);
+    window.addEventListener('pointerup', finishTagDrag);
+    window.addEventListener('pointercancel', finishTagDrag);
+}
+
+function beginTagDrag() {
+    const s = tagDragState;
+    if (!s || s.started) return;
+    clearTimeout(s.timer);
+    s.timer = null;
+    s.started = true;
+    s.rect = s.el.getBoundingClientRect();
+    const ghost = s.el.cloneNode(true);
+    ghost.classList.add('tag-drag-ghost');
+    ghost.style.position = 'fixed';
+    ghost.style.left = s.rect.left + 'px';
+    ghost.style.top = s.rect.top + 'px';
+    ghost.style.width = s.rect.width + 'px';
+    ghost.style.height = s.rect.height + 'px';
+    ghost.style.margin = '0';
+    document.body.appendChild(ghost);
+    s.ghost = ghost;
+    s.el.classList.add('tag-drag-placeholder');
+    document.body.classList.add('tag-dragging');
+    try { if (navigator.vibrate) navigator.vibrate(12); } catch (err) { /* 忽略 */ }
+}
+
+function onTagDragPointerMove(e) {
+    const s = tagDragState;
+    if (!s) return;
+    if (!s.started) {
+        const dist = Math.hypot(e.clientX - s.startX, e.clientY - s.startY);
+        if (s.wasOrganizing && dist >= 4) beginTagDrag();
+        else if (!s.isTouch && dist >= DRAG_START_MOVE_PX) {
+            enterTagOrganizeMode();
+            beginTagDrag();
+        } else if (dist >= DRAG_CANCEL_MOVE_PX) { cancelTagDrag(); return; }
+        else return;
+        if (!s.started) return;
+    }
+
+    s.ghost.style.transform = 'translate3d(' + (e.clientX - s.startX) + 'px,' + (e.clientY - s.startY) + 'px,0)';
+    // 用被拖动标签的中心判断目标，避免手指/鼠标停在标签边缘时要拖过很远才换位。
+    const centerX = s.rect.left + (e.clientX - s.startX) + s.rect.width / 2;
+    const centerY = s.rect.top + (e.clientY - s.startY) + s.rect.height / 2;
+    const candidates = Array.from(s.container.querySelectorAll('.tag-sort-item')).filter(el => el !== s.el);
+    if (!candidates.length) return;
+    let target = null, bestDistance = Infinity;
+    candidates.forEach(el => {
+        const r = el.getBoundingClientRect();
+        const dx = centerX - (r.left + r.width / 2);
+        const dy = centerY - (r.top + r.height / 2);
+        const distance = dx * dx + dy * dy;
+        if (distance < bestDistance) { bestDistance = distance; target = el; }
+    });
+    if (!target) return;
+    const r = target.getBoundingClientRect();
+    const sameRow = centerY >= r.top && centerY <= r.bottom;
+    const position = sameRow
+        ? (centerX - r.left) / Math.max(1, r.width)
+        : (centerY - r.top) / Math.max(1, r.height);
+    let after;
+    if (s.overEl === target) {
+        // 35% / 65% 两条边界形成小缓冲带，标签在边界附近不会来回抖动。
+        after = s.overAfter ? position > 0.35 : position >= 0.65;
+    } else {
+        after = position >= 0.5;
+    }
+    if (s.overEl === target && s.overAfter === after) return;
+    s.overEl = target;
+    s.overAfter = after;
+    flipInsertBefore(s.container, s.el, after ? target.nextSibling : target);
+}
+
+function cancelTagDrag() {
+    const s = tagDragState;
+    if (!s) return;
+    clearTimeout(s.timer);
+    window.removeEventListener('pointermove', onTagDragPointerMove);
+    window.removeEventListener('pointerup', finishTagDrag);
+    window.removeEventListener('pointercancel', finishTagDrag);
+    tagDragState = null;
+}
+
+function finishTagDrag() {
+    const s = tagDragState;
+    if (!s) return;
+    cancelTagDrag();
+    if (!s.started) return;
+    suppressTagClickUntil = Date.now() + 400;
+
+    const dest = s.el.getBoundingClientRect();
+    s.ghost.classList.add('tag-drag-landing');
+    s.ghost.style.transition = 'transform .16s cubic-bezier(.2,.8,.3,1), box-shadow .16s ease';
+    s.ghost.style.transform = 'translate3d(' + (dest.left - s.rect.left) + 'px,' + (dest.top - s.rect.top) + 'px,0)';
+    setTimeout(() => s.ghost.remove(), 180);
+    s.el.classList.remove('tag-drag-placeholder');
+    document.body.classList.remove('tag-dragging');
+
+    const nextOrder = Array.from(s.container.querySelectorAll('.tag-sort-item')).map(el => el.dataset.tag);
+    if (nextOrder.length && nextOrder.some((tag, i) => tag !== tagOrder[i])) {
+        tagOrder = nextOrder;
+        saveTagOrder();
+        renderEditTagSuggestionsIfOpen();
+    }
+}
+
+function onTagDragClickGuard(e) {
+    if (Date.now() >= suppressTagClickUntil) return;
+    suppressTagClickUntil = 0;
+    e.stopPropagation();
+    e.preventDefault();
+}
+
+function onTagOrganizeOutsideClick(e) {
+    if (!tagOrganizeMode || e.defaultPrevented) return;
+    if (e.target && e.target.closest && e.target.closest('#global-tags-filter .tag-sort-item, #global-tags-filter > button')) return;
+    exitTagOrganizeMode();
 }
 
 window.clearTagFilters = function() {
@@ -1062,52 +1117,62 @@ window.changeCardScale = function(val) {
     scheduleRefit();
 }
 
-function renderNotebookTabs() {
-    const container = document.getElementById('notebook-tabs');
-    const names = Object.keys(notebooks);
-
-    // 智能显隐：只有 1 本单词本时隐藏内容区 tabs 行（切换收进顶栏徽章下拉），≥2 本自动出现
-    const tabsRow = document.getElementById('notebook-tabs-row');
-    if (tabsRow) tabsRow.classList.toggle('hidden', names.length <= 1);
-
-    container.innerHTML = names.map(name => {
-        const isActive = name === activeNotebook;
-        const activeStyle = "bg-emerald-800 dark:bg-emerald-400/[0.12] text-white dark:text-emerald-400 border border-transparent dark:border-emerald-400/30 shadow-sm font-semibold";
-        const inactiveStyle = "bg-white dark:bg-stone-800 hover:bg-stone-100/80 dark:hover:bg-stone-700 text-stone-600 dark:text-stone-400 border border-stone-200 dark:border-stone-700 hover:border-stone-300 dark:hover:border-stone-600";
-
-        const reviewCount = notebooks[name].filter(c => !c.mastered).length;
-
-        return `
-            <button onclick="switchNotebookFromElement(event, this)" data-notebook-name="${escapeHtml(name)}" class="px-4 py-1.5 rounded-full text-xs transition-colors duration-200 whitespace-nowrap ${isActive ? activeStyle : inactiveStyle}">
-                ${escapeHtml(name)}
-                <span class="ml-1 text-[10px] opacity-60">(${reviewCount})</span>
-            </button>
-        `;
-    }).join('');
-
-    renderNotebookMenu();
-}
-
-// 顶栏徽章下拉菜单：单词本列表（含复习中词数）+ 切换
 function renderNotebookMenu() {
     const listEl = document.getElementById('notebook-menu-list');
     if (!listEl) return;
+    const badge = document.getElementById('active-notebook-badge');
+    if (badge) badge.textContent = activeNotebook;
     const names = Object.keys(notebooks);
     listEl.innerHTML = names.map(name => {
         const isActive = name === activeNotebook;
-        const reviewCount = notebooks[name].filter(c => !c.mastered).length;
+        const reviewCount = (notebooks[name] || []).filter(c => !c.mastered).length;
         return `
-            <button onclick="switchNotebookFromElement(event, this)" data-notebook-name="${escapeHtml(name)}" class="w-full px-3 py-2 rounded-lg text-left text-xs font-semibold flex items-center justify-between gap-2 transition-colors ${isActive ? 'bg-emerald-800/[0.12] dark:bg-emerald-400/[0.12] text-emerald-800 dark:text-emerald-400' : 'text-stone-600 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-700'}">
-                <span class="truncate">${escapeHtml(name)}</span>
-                <span class="text-[10px] opacity-60 shrink-0">${reviewCount}</span>
+            <button type="button" onclick="switchNotebookFromElement(event, this)" data-notebook-name="${escapeHtml(name)}" class="w-full px-3 py-2 rounded-lg text-left text-xs font-semibold flex items-center justify-between gap-2 transition-colors ${isActive ? 'bg-emerald-800/[0.12] dark:bg-emerald-400/[0.12] text-emerald-800 dark:text-emerald-400' : 'text-stone-600 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-700'}">
+                    <span class="truncate">${escapeHtml(name)}</span>
+                    <span class="flex items-center gap-2 shrink-0"><span class="text-[10px] opacity-60">${reviewCount}</span>${isActive ? '<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="m5 12 4 4L19 6"></path></svg>' : ''}</span>
             </button>
+        `;
+    }).join('');
+}
+
+window.openNotebookManager = function() {
+    document.getElementById('notebook-menu')?.classList.add('hidden');
+    renderNotebookManager();
+    document.getElementById('notebook-manager-modal')?.classList.remove('hidden');
+}
+
+window.closeNotebookManager = function() {
+    document.getElementById('notebook-manager-modal')?.classList.add('hidden');
+}
+
+function renderNotebookManager() {
+    const list = document.getElementById('notebook-manager-list');
+    if (!list) return;
+    const names = Object.keys(notebooks);
+    list.innerHTML = names.map(name => {
+        const isActive = name === activeNotebook;
+        const count = (notebooks[name] || []).length;
+        return `
+            <div class="flex items-center gap-2 px-2.5 py-2 rounded-xl hover:bg-stone-50 dark:hover:bg-stone-900/60 transition-colors">
+                <div class="min-w-0 flex-1">
+                    <div class="truncate text-xs font-semibold text-stone-700 dark:text-stone-200">${escapeHtml(name)}${isActive ? '<span class="ml-2 text-[10px] font-medium text-emerald-700 dark:text-emerald-400">当前</span>' : ''}</div>
+                    <div class="mt-0.5 text-[10px] text-stone-400 dark:text-stone-500">${count} 个单词</div>
+                </div>
+                <button type="button" data-notebook-name="${escapeHtml(name)}" onclick="openRenameNotebookModal(this.dataset.notebookName)" class="p-2 rounded-lg text-stone-400 dark:text-stone-500 hover:bg-stone-100 dark:hover:bg-stone-700 hover:text-emerald-700 dark:hover:text-emerald-400 transition-colors" title="重命名「${escapeHtml(name)}」" aria-label="重命名「${escapeHtml(name)}」">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L8 18l-4 1 1-4Z"></path></svg>
+                </button>
+                <button type="button" data-notebook-name="${escapeHtml(name)}" onclick="openDeleteNotebookConfirm(this.dataset.notebookName)" ${names.length <= 1 ? 'disabled' : ''} class="p-2 rounded-lg text-stone-400 dark:text-stone-500 hover:bg-danger-50 dark:hover:bg-danger-900/20 hover:text-danger-600 dark:hover:text-danger-400 disabled:opacity-30 disabled:cursor-not-allowed transition-colors" title="删除「${escapeHtml(name)}」" aria-label="删除「${escapeHtml(name)}」">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M3 6h18M8 6V4h8v2m-9 0 1 14h8l1-14M10 10v6m4-6v6"></path></svg>
+                </button>
+            </div>
         `;
     }).join('');
 }
 
 window.toggleNotebookMenu = function(event) {
     if (event) event.stopPropagation();
-    document.getElementById('notebook-menu').classList.toggle('hidden');
+    const menu = document.getElementById('notebook-menu');
+    menu.classList.toggle('hidden');
 }
 
 window.handleCardMasterButton = function(event, button) {
@@ -1145,11 +1210,16 @@ window.switchNotebook = function(name) {
     activeNotebook = name;
     activeTagFilters = [];
     saveData();
-    renderNotebookTabs();
+    renderNotebookMenu();
     renderCards();
 }
 
+let renameNotebookTarget = null;
+let deleteNotebookTarget = null;
+
 window.openNewNotebookModal = function() {
+    document.getElementById('notebook-menu')?.classList.add('hidden');
+    closeNotebookManager();
     const modal = document.getElementById('new-notebook-modal');
     const input = document.getElementById('new-notebook-input');
     input.value = "";
@@ -1178,18 +1248,21 @@ window.submitNewNotebook = function() {
     activeNotebook = newName;
     saveData();
     closeNewNotebookModal();
-    renderNotebookTabs();
+    renderNotebookMenu();
     renderCards();
     showToast(`单词本【${newName}】创建成功！`);
 }
 
-window.openRenameNotebookModal = function() {
+window.openRenameNotebookModal = function(targetName = activeNotebook) {
+    document.getElementById('notebook-menu')?.classList.add('hidden');
+    closeNotebookManager();
+    renameNotebookTarget = notebooks[targetName] ? targetName : activeNotebook;
     const modal = document.getElementById('rename-notebook-modal');
     const input = document.getElementById('rename-notebook-input');
     const oldNameSpan = document.getElementById('rename-notebook-oldname');
 
-    oldNameSpan.innerText = activeNotebook;
-    input.value = activeNotebook;
+    oldNameSpan.innerText = renameNotebookTarget;
+    input.value = renameNotebookTarget;
 
     modal.classList.remove('hidden');
     setTimeout(() => {
@@ -1201,12 +1274,13 @@ window.openRenameNotebookModal = function() {
 window.closeRenameNotebookModal = function() {
     const modal = document.getElementById('rename-notebook-modal');
     modal.classList.add('hidden');
+    renameNotebookTarget = null;
 }
 
 window.submitRenameNotebook = function() {
     const input = document.getElementById('rename-notebook-input');
     const newName = input.value.trim();
-    const oldName = activeNotebook;
+    const oldName = renameNotebookTarget || activeNotebook;
 
     if (!newName) {
         showToast("请输入新的单词本名称。");
@@ -1224,16 +1298,18 @@ window.submitRenameNotebook = function() {
     notebooks[newName] = notebooks[oldName];
     delete notebooks[oldName];
 
-    activeNotebook = newName;
+    if (activeNotebook === oldName) activeNotebook = newName;
 
     saveData();
     closeRenameNotebookModal();
-    renderNotebookTabs();
+    renderNotebookMenu();
     renderCards();
     showToast(`已成功将单词本重命名为【${newName}】`);
 }
 
-window.openDeleteNotebookConfirm = function() {
+window.openDeleteNotebookConfirm = function(targetName = activeNotebook) {
+    document.getElementById('notebook-menu')?.classList.add('hidden');
+    closeNotebookManager();
     const names = Object.keys(notebooks);
     if (names.length <= 1) {
         showToast("至少需要保留一个单词本！");
@@ -1242,24 +1318,25 @@ window.openDeleteNotebookConfirm = function() {
 
     const modal = document.getElementById('delete-notebook-modal');
     const nameSpan = document.getElementById('delete-notebook-name');
-    nameSpan.innerText = activeNotebook;
+    deleteNotebookTarget = notebooks[targetName] ? targetName : activeNotebook;
+    nameSpan.innerText = deleteNotebookTarget;
     modal.classList.remove('hidden');
 }
 
 window.closeDeleteNotebookConfirm = function() {
     const modal = document.getElementById('delete-notebook-modal');
     modal.classList.add('hidden');
+    deleteNotebookTarget = null;
 }
 
 window.submitDeleteNotebook = function() {
-    const names = Object.keys(notebooks);
-    const toDelete = activeNotebook;
+    const toDelete = deleteNotebookTarget || activeNotebook;
     delete notebooks[toDelete];
-    activeNotebook = Object.keys(notebooks)[0];
+    if (activeNotebook === toDelete) activeNotebook = Object.keys(notebooks)[0];
 
     saveData();
     closeDeleteNotebookConfirm();
-    renderNotebookTabs();
+    renderNotebookMenu();
     renderCards();
     showToast(`已永久删除单词本【${toDelete}】`);
 }
@@ -1485,6 +1562,13 @@ function beginCardDrag() {
         const v = gridVars.getPropertyValue(name);
         if (v) ghost.style.setProperty(name, v.trim());
     });
+    // 紧凑模式会通过 #cards-grid[data-compact] 覆盖卡片内边距和间距；克隆移出网格后
+    // 不再匹配该选择器，因此把原卡片实际使用的值一并固定到副本上。
+    const cardVars = getComputedStyle(s.el);
+    ['--card-pad', '--spacing-gap'].forEach(name => {
+        const v = cardVars.getPropertyValue(name);
+        if (v) ghost.style.setProperty(name, v.trim());
+    });
     // 内联 !important：样式表里的 !important 只有内联 !important 压得住
     ghost.style.setProperty('width', rect.width + 'px', 'important');
     ghost.style.setProperty('height', rect.height + 'px', 'important');
@@ -1518,7 +1602,7 @@ function onCardDragPointerMove(e) {
 
     // 克隆跟着指针走（fixed + transform，不碰布局，不引起重排）
     s.ghost.style.transform =
-        'translate3d(' + (e.clientX - s.startX) + 'px,' + (e.clientY - s.startY) + 'px,0) scale(1.04)';
+        'translate3d(' + (e.clientX - s.startX) + 'px,' + (e.clientY - s.startY) + 'px,0)';
 
     // 拖到视口上下边缘时自动滚动，否则长列表没法把卡拖到远处
     if (e.clientY < DRAG_EDGE_PX) {
@@ -1528,16 +1612,22 @@ function onCardDragPointerMove(e) {
     }
 
     // 克隆是 pointer-events:none，所以这里命中的一定是别的元素
-    const under = document.elementFromPoint(e.clientX, e.clientY);
+    // 用拖动卡片的中心做命中测试，手指压住卡片边缘时也能自然感知目标。
+    const centerX = s.rect.left + (e.clientX - s.startX) + s.rect.width / 2;
+    const centerY = s.rect.top + (e.clientY - s.startY) + s.rect.height / 2;
+    const under = document.elementFromPoint(centerX, centerY);
     if (!under || !under.closest) return;
     const over = under.closest('[data-card-id]');
     if (!over || over === s.el || over.parentElement !== s.grid) return;
 
     const r = over.getBoundingClientRect();
-    // 平铺按横向中线判断插到目标前/后；列表按纵向中线
-    const after = (layoutMode === 'list')
-        ? (e.clientY > r.top + r.height / 2)
-        : (e.clientX > r.left + r.width / 2);
+    // 平铺按横向位置判断插到目标前/后；列表按纵向位置，并在同一目标上使用缓冲带。
+    const position = layoutMode === 'list'
+        ? (centerY - r.top) / Math.max(1, r.height)
+        : (centerX - r.left) / Math.max(1, r.width);
+    const after = s.overEl === over
+        ? (s.overAfter ? position > 0.35 : position >= 0.65)
+        : position >= 0.5;
 
     // 落点没变就别动 DOM：重复 insertBefore 会让让位动画反复重启
     if (s.overEl === over && s.overAfter === after) return;
@@ -1569,12 +1659,12 @@ function flipInsertBefore(grid, el, refNode) {
         if (Math.abs(dx) < 1 && Math.abs(dy) < 1) return;
         c.style.transform = 'translate3d(' + dx + 'px,' + dy + 'px,0)';
         requestAnimationFrame(() => {
-            c.style.transition = 'transform .18s ease';
+            c.style.transition = 'transform .2s cubic-bezier(.2,.8,.2,1)';
             c.style.transform = '';
             // 动画收尾后清掉内联样式，否则会盖住卡片自带的 hover/展开过渡
             setTimeout(() => {
                 if (c.style.transform === '') c.style.transition = '';
-            }, 200);
+            }, 220);
         });
     });
 }
@@ -1622,7 +1712,7 @@ function finishCardDrag(s) {
         s.ghost.classList.add('drag-ghost-landing');
         s.ghost.style.transition = 'transform .16s cubic-bezier(.2,.8,.3,1), box-shadow .16s ease';
         s.ghost.style.transform =
-            'translate3d(' + (dest.left - s.rect.left) + 'px,' + (dest.top - s.rect.top) + 'px,0) scale(1)';
+            'translate3d(' + (dest.left - s.rect.left) + 'px,' + (dest.top - s.rect.top) + 'px,0)';
         const ghost = s.ghost;
         setTimeout(() => ghost.remove(), 180);
     }
@@ -1685,8 +1775,11 @@ function initCardDragSort() {
     document.addEventListener('click', onCardDragClickGuard, true);
     // 起拖之后才拦 touchmove（未起拖时拦了就没法滚页面了），滚动交给边缘自动滚
     window.addEventListener('touchmove', (e) => {
-        if (dragState && dragState.started) e.preventDefault();
+        if ((dragState && dragState.started) || (tagDragState && tagDragState.started)) e.preventDefault();
     }, { passive: false });
+    document.addEventListener('pointerdown', onTagDragPointerDown, true);
+    document.addEventListener('click', onTagDragClickGuard, true);
+    document.addEventListener('click', onTagOrganizeOutsideClick, true);
 }
 
 // 兜底清理：重渲染会把卡片 DOM 整个换掉，若此时正好有拖拽在跑（例如拖动途中
@@ -1697,9 +1790,17 @@ function purgeDragArtifacts() {
         if (dragState.timer) clearTimeout(dragState.timer);
         dragState = null;
     }
+    if (tagDragState) {
+        const tagState = tagDragState;
+        cancelTagDrag();
+        if (tagState.ghost) tagState.ghost.remove();
+        if (tagState.el) tagState.el.classList.remove('tag-drag-placeholder');
+    }
     document.querySelectorAll('.drag-ghost').forEach(el => el.remove());
+    document.querySelectorAll('.tag-drag-ghost').forEach(el => el.remove());
     document.querySelectorAll('.drag-placeholder').forEach(el => el.classList.remove('drag-placeholder'));
     document.body.classList.remove('card-dragging');
+    document.body.classList.remove('tag-dragging');
 }
 
 function renderCards() {
@@ -1829,7 +1930,7 @@ function buildCardHtml(item, isGlobalScope) {
 
                             <div class="flex-1 min-h-0 flex items-center w-full">
                                 <div class="card-content-scroll w-full max-h-full text-center">
-                                    <h3 class="font-japanese font-medium tracking-wide text-stone-800 dark:text-stone-200 leading-normal break-words" lang="ja" style="font-size: var(--fs-title); overflow-wrap: anywhere; word-break: normal;">${cleanWordFront}</h3>
+                                    <h3 class="font-japanese font-medium tracking-wide text-stone-800 dark:text-stone-200 leading-normal whitespace-nowrap" lang="ja" style="font-size: var(--fs-title);">${cleanWordFront}</h3>
                                 </div>
                             </div>
 
@@ -1857,7 +1958,7 @@ function buildCardHtml(item, isGlobalScope) {
                                 <div class="card-content-scroll w-full h-full flex flex-col justify-start">
                                     <div class="w-full my-auto flex flex-col" style="gap: calc(var(--spacing-gap) * var(--fit-scale, 1.0));">
                                         <div class="text-center">
-                                            <h3 class="font-japanese font-medium text-stone-900 dark:text-stone-100 leading-normal inline-block" lang="ja" style="font-size: var(--fs-sub);">${rubyBack}</h3>
+                                            <h3 class="font-japanese font-medium text-stone-900 dark:text-stone-100 leading-normal inline-block whitespace-nowrap" lang="ja" style="font-size: var(--fs-sub);">${rubyBack}</h3>
                                         </div>
                                         <div class="text-center">
                                             <p class="text-stone-700 dark:text-stone-300 bg-stone-200/40 dark:bg-stone-800/40 rounded-lg inline-block max-w-full font-semibold" style="font-size: var(--fs-text); padding: calc(0.375rem * var(--card-scale, 1.0)) calc(0.75rem * var(--card-scale, 1.0));">${escapeHtml(item.meaning)}</p>
@@ -2058,6 +2159,82 @@ window.flipCard = function(element) {
 // ==========================================
 let currentEditTags = [];
 
+function renderEditMoveTargets(selectedName) {
+    const valueInput = document.getElementById('edit-move-target');
+    const label = document.getElementById('edit-move-target-label');
+    const options = document.getElementById('edit-move-target-options');
+    if (!valueInput || !label || !options) return;
+    const targets = Object.keys(notebooks);
+    const selected = targets.includes(selectedName) ? selectedName : (targets[0] || '');
+    valueInput.value = selected;
+    label.textContent = selected;
+    options.innerHTML = targets.map(name => `
+        <button type="button" role="option" aria-selected="${name === selected}" data-notebook-name="${escapeHtml(name)}" onclick="setEditMoveTarget(event, this)" onkeydown="handleEditMoveTargetKeydown(event)" class="w-full flex items-center justify-between gap-2 px-3 py-2 rounded-lg text-left text-xs font-medium transition-colors ${name === selected ? 'bg-emerald-800/[0.12] dark:bg-emerald-400/[0.12] text-emerald-800 dark:text-emerald-400' : 'text-stone-600 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-700'}">
+            <span class="truncate">${escapeHtml(name)}</span>
+            ${name === selected ? '<svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="m5 12 4 4L19 6"></path></svg>' : ''}
+        </button>
+    `).join('');
+}
+
+window.toggleEditMoveTargetMenu = function(event) {
+    event.stopPropagation();
+    const options = document.getElementById('edit-move-target-options');
+    const button = document.getElementById('edit-move-target-button');
+    const opening = options.classList.contains('hidden');
+    options.classList.toggle('hidden');
+    button.setAttribute('aria-expanded', String(opening));
+}
+
+window.setEditMoveTarget = function(event, option) {
+    event.stopPropagation();
+    const value = option.dataset.notebookName;
+    document.getElementById('edit-move-target').value = value;
+    document.getElementById('edit-move-target-label').textContent = value;
+    closeEditMoveTargetMenu();
+    renderEditMoveTargets(value);
+}
+
+window.handleEditMoveTargetKeydown = function(event) {
+    const options = document.getElementById('edit-move-target-options');
+    const button = document.getElementById('edit-move-target-button');
+    if (event.key === 'Escape' || event.key === 'Tab') {
+        closeEditMoveTargetMenu();
+        if (event.key === 'Escape') button.focus();
+        return;
+    }
+    if (event.target === button && event.key === 'ArrowDown') {
+        event.preventDefault();
+        if (options.classList.contains('hidden')) toggleEditMoveTargetMenu(event);
+        options.querySelector('[aria-selected="true"]')?.focus();
+        return;
+    }
+    if (event.target.getAttribute('role') !== 'option') return;
+    const items = Array.from(options.querySelectorAll('[role="option"]'));
+    const index = items.indexOf(event.target);
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault();
+        const step = event.key === 'ArrowDown' ? 1 : -1;
+        items[(index + step + items.length) % items.length]?.focus();
+    } else if (event.key === 'Home' || event.key === 'End') {
+        event.preventDefault();
+        (event.key === 'Home' ? items[0] : items[items.length - 1])?.focus();
+    }
+}
+
+function closeEditMoveTargetMenu() {
+    const options = document.getElementById('edit-move-target-options');
+    const button = document.getElementById('edit-move-target-button');
+    if (options) options.classList.add('hidden');
+    if (button) button.setAttribute('aria-expanded', 'false');
+}
+
+document.addEventListener('click', event => {
+    if (!event.target.closest('#edit-move-target-wrapper')) closeEditMoveTargetMenu();
+});
+document.addEventListener('keydown', event => {
+    if (event.key === 'Escape') closeEditMoveTargetMenu();
+});
+
 window.openEditCardModal = function(event, cardId, notebookName = activeNotebook) {
     event.stopPropagation();
 
@@ -2077,10 +2254,7 @@ window.openEditCardModal = function(event, cardId, notebookName = activeNotebook
     document.getElementById('edit-tag-input').value = '';
 
     // 修改下拉框逻辑：展示所有本子，默认选中当前
-    const targetSelect = document.getElementById('edit-move-target');
-    const targets = Object.keys(notebooks);
-    targetSelect.innerHTML = targets.map(name => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join('');
-    targetSelect.value = notebookName;
+    renderEditMoveTargets(notebookName);
 
     const modal = document.getElementById('edit-card-modal');
     modal.classList.remove('hidden');
@@ -2089,6 +2263,7 @@ window.openEditCardModal = function(event, cardId, notebookName = activeNotebook
 window.closeEditCardModal = function() {
     const modal = document.getElementById('edit-card-modal');
     modal.classList.add('hidden');
+    closeEditMoveTargetMenu();
 }
 
 function renderEditTags() {
@@ -2221,7 +2396,7 @@ document.getElementById('edit-vocab-form').addEventListener('submit', function(e
         }
 
         saveData();
-        renderNotebookTabs();
+        renderNotebookMenu();
         renderCards();
         closeEditCardModal();
 
@@ -2249,7 +2424,7 @@ window.submitDeleteCardPermanently = function() {
         currentList.splice(cardIndex, 1);
         saveData();
         renderCards();
-        renderNotebookTabs();
+        renderNotebookMenu();
         closeEditCardModal();
 
         showToast("已从单词库彻底删除该卡片", () => {
@@ -2258,7 +2433,7 @@ window.submitDeleteCardPermanently = function() {
                 targetList.splice(lastDeletedCard.index, 0, lastDeletedCard.card);
                 saveData();
                 renderCards();
-                renderNotebookTabs();
+                renderNotebookMenu();
                 showToast("已成功撤销，卡片已恢复！");
                 lastDeletedCard = null;
             }
@@ -2424,11 +2599,11 @@ window.toggleCardMastered = function(event, cardId, notebookName = activeNoteboo
         cardEl.style.opacity = '0';
         setTimeout(() => {
             renderCards();
-            renderNotebookTabs();
+            renderNotebookMenu();
         }, 230);
     } else {
         renderCards();
-        renderNotebookTabs();
+        renderNotebookMenu();
     }
 }
 
@@ -2697,7 +2872,7 @@ window.submitJsonImport = function() {
     });
 
     saveData();
-    renderNotebookTabs();
+    renderNotebookMenu();
     if (targetMode === 'new') {
         switchNotebook(targetName);
     } else {
@@ -2882,7 +3057,7 @@ window.submitBatchImport = async function() {
 
         saveData();
         renderCards();
-        renderNotebookTabs();
+        renderNotebookMenu();
         closeBatchImportModal();
 
         if (dupCount > 0) {
@@ -3255,7 +3430,7 @@ window.restorePreCloudBackup = function() {
             saveTagOrder();
         }
         saveData();
-        renderNotebookTabs();
+        renderNotebookMenu();
         renderGlobalTags();
         renderCards();
         updateSyncStatus(`✅ 已恢复拉取前的本机备份：${count} 个单词`);
@@ -3474,7 +3649,7 @@ window.syncFromCloud = async function() {
                 saveTagOrder();
             }
             saveData();
-            renderNotebookTabs();
+            renderNotebookMenu();
             renderGlobalTags();
             renderCards();
 
@@ -3541,7 +3716,7 @@ document.getElementById('vocab-form').addEventListener('submit', function(e) {
     } else {
         renderCards();
     }
-    renderNotebookTabs();
+    renderNotebookMenu();
 
     e.target.reset();
     wordInput.focus();
