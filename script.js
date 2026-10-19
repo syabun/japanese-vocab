@@ -846,6 +846,7 @@ window.toggleTagFilter = function(tag) {
     } else {
         activeTagFilters.push(tag);
     }
+    resetFlippedCards();
     renderGlobalTags();
     renderCards();
 }
@@ -1030,6 +1031,7 @@ function onTagOrganizeOutsideClick(e) {
 window.clearTagFilters = function() {
     if (activeTagFilters.length === 0) return;
     activeTagFilters = [];
+    resetFlippedCards();
     renderGlobalTags();
     renderCards();
 }
@@ -1064,6 +1066,7 @@ function showToast(msg, onUndo = null, duration = 4000) {
 }
 
 window.setCardFilter = function(filter) {
+    if (cardFilter !== filter) resetFlippedCards();
     cardFilter = filter;
     const btnIds = { review: 'filter-review-btn', mastered: 'filter-mastered-btn', all: 'filter-all-btn' };
     const activeCls = "px-3 py-1.5 rounded-lg text-xs font-bold transition duration-200 bg-white dark:bg-stone-700 text-emerald-800 dark:text-emerald-400 shadow-sm whitespace-nowrap";
@@ -3716,6 +3719,7 @@ document.getElementById('vocab-form').addEventListener('submit', function(e) {
 
 document.getElementById('search-input').addEventListener('input', function(event) {
     window.clearTimeout(searchDebounceTimer);
+    resetFlippedCards();
     const isSearching = event.target.value.trim() !== '';
     const wasSearching = this.dataset.wasSearching === '1';
 
@@ -3741,6 +3745,11 @@ let allFlipped = false;
 // 翻面状态（内存中按 cardId 记录）。renderCards 重绘后据此回灌 .card-inner.is-flipped，
 // 使标记已掌握等触发整页重绘的操作不再把已翻面的卡片刷回正面。刷新页面时重置（符合「保持原样」的会话内语义）。
 const flippedCardIds = new Set();
+function resetFlippedCards() {
+    flippedCardIds.clear();
+    allFlipped = false;
+    if (flipFab && layoutMode === "grid") flipFab.title = "全卡翻面";
+}
 // 悬浮翻面按钮：平铺模式=全卡翻面↔还原正面；列表模式=全部展开↔收起（自愈式：
 // 只要还有没收起的条目就全部展开，全部展开过再按才全部收起，不会卡中间态）
 const flipFab = document.getElementById('flip-fab');
@@ -3748,10 +3757,13 @@ if (flipFab) {
     flipFab.addEventListener('click', () => {
         if (layoutMode === "grid") {
             allFlipped = !allFlipped;
+            // 清理时必须覆盖尚未懒加载的卡片；否则它们的 ID 会留在集合中，
+            // 后续 loadMoreCards() 重绘时又会以背面状态出现。
+            if (!allFlipped) flippedCardIds.clear();
             document.querySelectorAll('.card-scale-box').forEach(box => {
                 const id = box.dataset.cardId;
                 const inner = box.querySelector('.card-inner');
-                if (allFlipped) { if (id) flippedCardIds.add(id); } else { if (id) flippedCardIds.delete(id); }
+                if (allFlipped && id) flippedCardIds.add(id);
                 if (inner) inner.classList.toggle('is-flipped', allFlipped);
             });
             flipFab.title = allFlipped ? "全部还原正面" : "全卡翻面";
@@ -3775,6 +3787,7 @@ window.shuffleCards = function() {
         showToast("当前单词本不足两个词，无法打乱顺序。");
         return;
     }
+    resetFlippedCards();
     const hadManual = manualCardOrder;
     reshuffleDisplay();
     showToast(hadManual
