@@ -193,6 +193,7 @@ function ensureShuffleOrder() {
 
 // 重新洗牌：把当前全部卡片（含之前置顶的新卡）重新打乱并落盘
 function reshuffleDisplay() {
+    resetFlippedCards();
     shuffleOrder = fisherYatesShuffle(getAllCardIds());
     persistShuffleOrder();
     manualCardOrder = false; // 重洗即放弃手动排的顺序，两套顺序不打架
@@ -2133,6 +2134,10 @@ window.loadMoreCards = function() {
     visibleCardLimit = Math.min(visibleCardLimit + cardsPerBatch, filteredList.length);
     const newCards = filteredList.slice(prevLimit, visibleCardLimit);
     if (newCards.length > 0) {
+        // 批量翻面后继续懒加载时，新批次也要遵循当前批量翻面状态。
+        if (layoutMode === "grid" && allFlipped) {
+            newCards.forEach(item => flippedCardIds.add(item.id));
+        }
         grid.insertAdjacentHTML('beforeend', newCards.map(item => buildCardHtml(item, isGlobalScope)).join(''));
         observeCardsForFit();
     }
@@ -3787,7 +3792,6 @@ window.shuffleCards = function() {
         showToast("当前单词本不足两个词，无法打乱顺序。");
         return;
     }
-    resetFlippedCards();
     const hadManual = manualCardOrder;
     reshuffleDisplay();
     showToast(hadManual
