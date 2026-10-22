@@ -2150,6 +2150,7 @@ window.flipCard = function(element) {
     const flipped = inner.classList.toggle('is-flipped');
     const id = element.dataset.cardId;
     if (id) { if (flipped) flippedCardIds.add(id); else flippedCardIds.delete(id); }
+    playPaperFlip();
 }
 
 // ==========================================
@@ -2526,6 +2527,80 @@ function playCrispClick() {
     ns.start(now); ns.stop(now + 0.02);
 }
 
+// 📄 物理拟真：厚纸张翻动/摩擦声（白噪声 + 带通滤波器）
+function playPaperFlip() {
+    if (!soundEnabled) return;
+    const ctx = getAudioCtx();
+    if (!ctx) return;
+    const now = ctx.currentTime;
+
+    const noiseSize = Math.floor(ctx.sampleRate * 0.12);
+    const buffer = ctx.createBuffer(1, noiseSize, ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < noiseSize; i++) {
+        data[i] = Math.random() * 2 - 1;
+    }
+
+    const noise = ctx.createBufferSource();
+    noise.buffer = buffer;
+
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'bandpass';
+    filter.frequency.value = 800 + Math.random() * 300;
+    filter.Q.value = 0.6;
+
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0, now);
+    gain.gain.linearRampToValueAtTime(0.22, now + 0.015);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
+
+    noise.connect(filter).connect(gain).connect(ctx.destination);
+    noise.start(now);
+}
+
+// 🪵 物理拟真：沉闷原木敲击声（低频正弦波快速降调）
+function playSoftThud() {
+    if (!soundEnabled) return;
+    const ctx = getAudioCtx();
+    if (!ctx) return;
+    const now = ctx.currentTime;
+
+    // A little midrange resonance keeps the thud audible on small speakers.
+    const osc = ctx.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(180, now);
+    osc.frequency.exponentialRampToValueAtTime(65, now + 0.08);
+
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.linearRampToValueAtTime(0.58, now + 0.008);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.11);
+
+    // Brief filtered noise supplies the audible wooden impact transient.
+    const noiseLength = Math.floor(ctx.sampleRate * 0.035);
+    const buffer = ctx.createBuffer(1, noiseLength, ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < noiseLength; i++) {
+        data[i] = (Math.random() * 2 - 1) * (1 - i / noiseLength);
+    }
+    const noise = ctx.createBufferSource();
+    noise.buffer = buffer;
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'bandpass';
+    filter.frequency.value = 650;
+    filter.Q.value = 0.7;
+    const noiseGain = ctx.createGain();
+    noiseGain.gain.setValueAtTime(0.0001, now);
+    noiseGain.gain.linearRampToValueAtTime(0.4, now + 0.004);
+    noiseGain.gain.exponentialRampToValueAtTime(0.001, now + 0.035);
+
+    osc.connect(gain).connect(ctx.destination);
+    noise.connect(filter).connect(noiseGain).connect(ctx.destination);
+    osc.start(now);
+    osc.stop(now + 0.12);
+    noise.start(now);
+}
+
 window.toggleSoundEnabled = function() {
     soundEnabled = !soundEnabled;
     localStorage.setItem('sound_enabled', soundEnabled ? 'true' : 'false');
@@ -2570,9 +2645,10 @@ window.toggleCardMastered = function(event, cardId, notebookName = activeNoteboo
     const oldStatus = card.mastered;
     if (!oldStatus) {
         playCrispClick();              // 放入「已掌握」时清脆一声
-        spawnMasteredPop(event.clientX, event.clientY); // 视觉奖励（iPhone 震动替补）
-        // 安卓震动（双脉冲对应「叮—咚」）；iPhone 不支持 navigator.vibrate，静默跳过。受静音开关控制。
+        spawnMasteredPop(event.clientX, event.clientY); // 视觉奖励
         if (soundEnabled && navigator.vibrate) navigator.vibrate([18, 40, 26]);
+    } else {
+        playSoftThud();                // 移回「复习中」时沉闷一声
     }
 
     // 数据立即变更并落盘：把 renderCards() 延后到离场动画之后即可，
