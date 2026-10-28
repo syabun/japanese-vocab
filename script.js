@@ -68,6 +68,7 @@ let corruptLocalDataKey = null;
 let corruptDataDownloaded = false;
 let cardFilter = "review"; // "review" (复习中) / "mastered" (已掌握) / "all" (全部)
 let activeTagFilters = []; // 当前选中的全局标签
+let searchScope = "current"; // "current" (当前单词本) / "global" (所有单词本)
 
 function safeStorageGet(key, fallback = null) {
     try {
@@ -363,7 +364,7 @@ function saveData() {
 }
 
 function rubyBracketRegex() {
-    return /([^\s\[\]\u3040-\u309f\u30a0-\u30f4\u30f7-\u30ff]+)\[([^\]]+)\]/g;
+    return /([\p{Script=Han}\u3005\u3006\u303B]+)\[([^\]]+)\]/gu;
 }
 
 // 用户输入、导入文件和云端备份中的文字一律按纯文本显示，不能解释为 HTML。
@@ -434,29 +435,26 @@ function matchesSearchTerms(item, terms) {
     return terms.every(term => corpus.includes(term));
 }
 
-function findGlobalDuplicateNotebook(word, excludedCardId = null, preferredNotebook = null) {
-    const identity = normalizeSearchText(getCleanWordText(word)).replace(/\s+/g, '');
-    if (!identity) return null;
-    const entries = Object.entries(notebooks);
-    if (preferredNotebook && notebooks[preferredNotebook]) {
-        const cards = notebooks[preferredNotebook];
-        if ((cards || []).some(card => {
-            if (excludedCardId && card.id === excludedCardId) return false;
-            return normalizeSearchText(getCleanWordText(card.word)).replace(/\s+/g, '') === identity;
-        })) return preferredNotebook;
-    }
-    for (const [notebookName, cards] of entries) {
-        if (notebookName === preferredNotebook) continue;
-        if ((cards || []).some(card => {
-            if (excludedCardId && card.id === excludedCardId) return false;
-            return normalizeSearchText(getCleanWordText(card.word)).replace(/\s+/g, '') === identity;
-        })) return notebookName;
-    }
-    return null;
+function getWordIdentity(word) {
+    return normalizeSearchText(getCleanWordText(word)).replace(/\s+/g, '');
 }
 
-function hasGlobalDuplicate(word, excludedCardId = null) {
-    return findGlobalDuplicateNotebook(word, excludedCardId) !== null;
+function hasDuplicateInNotebook(word, notebookName, excludedCardId = null) {
+    const identity = getWordIdentity(word);
+    if (!identity) return false;
+    return (notebooks[notebookName] || []).some(card =>
+        (!excludedCardId || card.id !== excludedCardId) && getWordIdentity(card.word) === identity
+    );
+}
+
+function findDuplicateNotebooks(word, excludedNotebookName = null, excludedCardId = null) {
+    const identity = getWordIdentity(word);
+    if (!identity) return [];
+    return Object.entries(notebooks)
+        .filter(([notebookName, cards]) => notebookName !== excludedNotebookName && (cards || []).some(card =>
+            (!excludedCardId || card.id !== excludedCardId) && getWordIdentity(card.word) === identity
+        ))
+        .map(([notebookName]) => notebookName);
 }
 
 function toCircledNum(n) {
@@ -1208,6 +1206,7 @@ window.switchNotebook = function(name) {
     saveData();
     renderNotebookMenu();
     renderCards();
+    scheduleManualDuplicateCheck();
 }
 
 let renameNotebookTarget = null;
@@ -1341,12 +1340,16 @@ window.toggleListExpand = function(element) {
     if (layoutMode !== "list") return;
     const expandedSection = element.querySelector('.list-expand-area');
     const arrowIcon = element.querySelector('.arrow-icon');
-    if (expandedSection.classList.contains('hidden')) {
+    const id = element.dataset.cardId;
+    const opening = expandedSection.classList.contains('hidden');
+    if (opening) {
         expandedSection.classList.remove('hidden');
         arrowIcon.classList.add('rotate-180');
+        if (id) expandedCardIds.add(id);
     } else {
         expandedSection.classList.add('hidden');
         arrowIcon.classList.remove('rotate-180');
+        if (id) expandedCardIds.delete(id);
     }
 }
 
@@ -1453,7 +1456,7 @@ function getDisplayedCards() {
     const searchVal = document.getElementById('search-input').value;
     const searchTerms = getSearchTerms(searchVal);
     const isGlobalSearch = searchTerms.length > 0;
-    const isGlobalScope = isGlobalSearch || activeTagFilters.length > 0;
+    const isGlobalScope = searchScope === "global" && (isGlobalSearch || activeTagFilters.length > 0);
     const currentList = isGlobalScope
         ? Object.entries(notebooks).flatMap(([notebookName, cards]) => cards.map(card => ({ ...card, sourceNotebook: notebookName })))
         : (notebooks[activeNotebook] || []).map(card => ({ ...card, sourceNotebook: activeNotebook }));
@@ -1802,7 +1805,7 @@ function renderCards() {
     const grid = document.getElementById('cards-grid');
     const emptyState = document.getElementById('empty-state');
     const searchVal = document.getElementById('search-input').value;
-    const renderContext = JSON.stringify([activeNotebook, cardFilter, layoutMode, activeTagFilters, normalizeSearchText(searchVal)]);
+    const renderContext = JSON.stringify([activeNotebook, cardFilter, layoutMode, activeTagFilters, normalizeSearchText(searchVal), searchScope]);
     if (renderContext !== lastCardRenderContext) {
         visibleCardLimit = cardsPerBatch;
         lastCardRenderContext = renderContext;
@@ -1885,6 +1888,7 @@ function buildCardHtml(item, isGlobalScope) {
         const notebookBadgeHtml = isGlobalScope
             ? `<span class="px-1.5 py-0.5 rounded-md bg-stone-100 dark:bg-stone-700/60 text-stone-500 dark:text-stone-300 font-medium" style="font-size: var(--fs-tiny);">${safeNotebook} · ${item.mastered ? '已掌握' : '复习中'}</span>`
             : '';
+        const notebookBadgeBackHtml = isGlobalScope ? '' : notebookBadgeHtml;
 
         const masterButtonHtml = `
             <button onclick="handleCardMasterButton(event, this)" class="${item.mastered ? 'text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 bg-emerald-50 dark:bg-emerald-900/30 dark:hover:bg-emerald-900/60' : 'text-stone-300 dark:text-stone-600 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/30'} rounded-lg transition duration-150 shrink-0 flex items-center justify-center active:scale-75" style="padding: calc(0.375rem * var(--card-scale, 1.0));" title="${item.mastered ? '移回复习中' : '标记为已掌握'}">
@@ -1939,7 +1943,7 @@ function buildCardHtml(item, isGlobalScope) {
                                     <span class="tracking-widest text-emerald-800/50 dark:text-emerald-400/60 font-mono font-bold flex items-center" style="font-size: var(--fs-tiny);">
                                         BACK
                                     </span>
-                                    ${notebookBadgeHtml}
+                                    ${notebookBadgeBackHtml}
                                 </div>
                                 ${tagsHtml ? `<div class="tag-strip-inline flex-1 min-w-0 mx-1.5 overflow-hidden flex flex-nowrap items-center pointer-events-none">${tagsHtml}</div>` : ''}
                                 <div class="flex items-center space-x-1 shrink-0">
@@ -1983,13 +1987,13 @@ function buildCardHtml(item, isGlobalScope) {
                         <div class="flex items-center space-x-2.5 shrink-0">
                             ${editButtonHtml}
                             ${masterButtonHtml}
-                            <svg class="w-4 h-4 text-stone-400 dark:text-stone-500 transition-transform duration-300 transform arrow-icon shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <svg class="w-4 h-4 text-stone-400 dark:text-stone-500 transition-transform duration-300 transform arrow-icon shrink-0${expandedCardIds.has(item.id) ? ' rotate-180' : ''}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7"></path>
                             </svg>
                         </div>
                     </div>
 
-                    <div class="list-expand-area hidden border-t border-stone-100 dark:border-stone-700/50 bg-[#faf9f4]/80 dark:bg-transparent px-4 space-y-4 transition-colors">
+                    <div class="list-expand-area${expandedCardIds.has(item.id) ? '' : ' hidden'} border-t border-stone-100 dark:border-stone-700/50 bg-[#faf9f4]/80 dark:bg-transparent px-4 space-y-4 transition-colors">
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
                             <div class="flex items-center space-x-2">
                                 <span class="text-xs font-bold text-stone-400 dark:text-stone-500 uppercase tracking-wider shrink-0 transition-colors">读音:</span>
@@ -2369,40 +2373,53 @@ document.getElementById('edit-vocab-form').addEventListener('submit', function(e
         const card = currentList[cardIndex];
         const updatedWord = document.getElementById('edit-word').value.trim();
 
-        const currentIdentity = normalizeSearchText(getCleanWordText(card.word)).replace(/\s+/g, '');
-        const updatedIdentity = normalizeSearchText(getCleanWordText(updatedWord)).replace(/\s+/g, '');
-        if (updatedIdentity !== currentIdentity || (targetNotebook && targetNotebook !== editNotebook)) {
-            const duplicateNotebook = findGlobalDuplicateNotebook(updatedWord, card.id, targetNotebook || editNotebook);
-            if (duplicateNotebook) {
-                showToast(duplicateNotebook === editNotebook
-                    ? `当前单词本里已经收录了“${getCleanWordText(updatedWord)}”，不能保存重复词条。`
-                    : `“${getCleanWordText(updatedWord)}”已经收录在「${duplicateNotebook}」单词本中，不能保存重复词条。`);
-                return;
+        const currentIdentity = getWordIdentity(card.word);
+        const updatedIdentity = getWordIdentity(updatedWord);
+        const destinationNotebook = targetNotebook || editNotebook;
+        const wordChangedOrMoving = updatedIdentity !== currentIdentity || destinationNotebook !== editNotebook;
+        if (wordChangedOrMoving && hasDuplicateInNotebook(updatedWord, destinationNotebook, card.id)) {
+            showToast(`「${destinationNotebook}」单词本里已经收录了“${getCleanWordText(updatedWord)}”，不能保存重复词条。`);
+            return;
+        }
+
+        const duplicateNotebooks = wordChangedOrMoving
+            ? findDuplicateNotebooks(updatedWord, destinationNotebook, card.id)
+            : [];
+        const saveEditedCard = () => {
+            card.word = updatedWord;
+            card.kana = document.getElementById('edit-kana').value.trim();
+            card.meaning = document.getElementById('edit-meaning').value.trim();
+            card.example = document.getElementById('edit-example').value.trim();
+            card.tags = [...currentEditTags];
+
+            if (destinationNotebook !== editNotebook) {
+                currentList.splice(cardIndex, 1);
+                if (!notebooks[destinationNotebook]) notebooks[destinationNotebook] = [];
+                notebooks[destinationNotebook].unshift(card);
             }
-        }
 
-        card.word = updatedWord;
-        card.kana = document.getElementById('edit-kana').value.trim();
-        card.meaning = document.getElementById('edit-meaning').value.trim();
-        card.example = document.getElementById('edit-example').value.trim();
-        card.tags = [...currentEditTags];
+            saveData();
+            renderNotebookMenu();
+            renderCards();
+            closeEditCardModal();
 
-        // 核心：如果有跨本子移动的动作
-        if (targetNotebook && targetNotebook !== editNotebook) {
-            currentList.splice(cardIndex, 1);
-            if (!notebooks[targetNotebook]) notebooks[targetNotebook] = [];
-            notebooks[targetNotebook].unshift(card);
-        }
+            if (destinationNotebook !== editNotebook) {
+                showToast(`卡片已保存，并移动到【${destinationNotebook}】单词本。`);
+            } else {
+                showToast("卡片内容及标签保存成功！");
+            }
+        };
 
-        saveData();
-        renderNotebookMenu();
-        renderCards();
-        closeEditCardModal();
-
-        if (targetNotebook && targetNotebook !== editNotebook) {
-            showToast(`卡片已保存，并移动到【${targetNotebook}】单词本。`);
+        if (duplicateNotebooks.length > 0) {
+            openConfirmModal({
+                title: '发现其他单词本中已有此词',
+                message: `「${duplicateNotebooks.join('」「')}」单词本中已有“${getCleanWordText(updatedWord)}”。仍要保存到「${destinationNotebook}」吗？`,
+                confirmText: '仍然保存',
+                danger: false,
+                onConfirm: saveEditedCard
+            });
         } else {
-            showToast("卡片内容及标签保存成功！");
+            saveEditedCard();
         }
     }
 });
@@ -2928,7 +2945,7 @@ window.submitJsonImport = function() {
     let dupCount = 0;
 
     parsed.cards.forEach(c => {
-        const isDuplicate = hasGlobalDuplicate(c.word);
+        const isDuplicate = hasDuplicateInNotebook(c.word, targetName);
         if (isDuplicate) {
             dupCount++;
         } else {
@@ -2956,7 +2973,7 @@ window.submitJsonImport = function() {
     closeBatchImportModal();
 
     if (dupCount > 0) {
-        showToast(`📦 导入完成！已向「${targetName}」添加 ${successCount} 个词，跳过 ${dupCount} 个已收录的词。`);
+        showToast(`📦 导入完成！已向「${targetName}」添加 ${successCount} 个词，跳过 ${dupCount} 个目标本中已收录或导入内容重复的词。`);
     } else {
         showToast(`📦 导入完成！${successCount} 个单词已加入「${targetName}」。`);
     }
@@ -3002,14 +3019,20 @@ window.submitBatchImport = async function() {
 1. 只能提取原文或图片中已有的信息。绝对不要自行翻译、编造或补充缺失的假名、中文释义和例句！
 2. 如果原文中某个词没有提供假名、释义或例句，其对应的 JSON 字段必须直接留空字符串 ""。
 3. 如果原文包含例句，请将其提取到 example 字段。
-4. 必须输出纯净合法的 JSON 对象，禁止使用 Markdown 标记包裹。
+4. 如果原文提供了汉字词的读音（包括词旁注音、括号读音，或像“う つ 打ち付ける”这样分开列在单词前的假名），必须将读音按对应汉字拆分，写入 word 字段的方括号注音格式：汉字[读音]。分开列出的读音按汉字在单词中从左到右的顺序对应；送り仮名留在方括号外；不要把这些读音整体放进 kana 字段。
+   - 示例：原文“う つ 打ち付ける”应输出 word 为“打[う]ち付[つ]ける”，kana 为 ""；不能输出 word 为“打ち付ける”、kana 为“う つ”。
+   - 示例：原文“食べる（たべる）”应输出 word 为“食[た]べる”，kana 为 ""；“べる”留在括号外。
+   - 如果读音无法可靠地对应到各个汉字，不要猜测或做不完整标注；保留原词写在 word，并把原读音写入 kana。
+5. 如果原文没有提供读音，不得自行补充方括号注音；kana 留空。纯假名词也不需要添加方括号注音。
+6. 已完整写入 word 的注音不要在 kana 字段重复填写，避免卡片把整词读音错误地标在整个单词上。
+7. 必须输出纯净合法的 JSON 对象，禁止使用 Markdown 标记包裹。
 【输出格式】
 必须严格返回如下格式的 JSON 对象（不可有其他外层属性）：
 {
   "items": [
     {
-      "word": "提取的日文汉字或单词（必填）",
-      "kana": "提取的假名（若原文无，留空）",
+      "word": "提取的日文单词；原文提供读音时按汉字写入[读音]注音",
+      "kana": "无法可靠地逐字对齐时保留原文读音；已写入 word 或原文无读音时留空",
       "meaning": "提取的中文释义（若原文无，留空）",
       "example": "提取的例句（若原文无，留空）"
     }
@@ -3112,7 +3135,7 @@ window.submitBatchImport = async function() {
 
         itemsList.reverse().forEach(item => {
             if(!item.word) return;
-            const isDuplicate = hasGlobalDuplicate(item.word.trim());
+            const isDuplicate = hasDuplicateInNotebook(item.word.trim(), activeNotebook);
 
             if (isDuplicate) {
                 dupCount++;
@@ -3135,7 +3158,7 @@ window.submitBatchImport = async function() {
         closeBatchImportModal();
 
         if (dupCount > 0) {
-            showToast(`✨ 提取完成！新增 ${successCount} 个词，跳过 ${dupCount} 个已收录的词。`);
+            showToast(`✨ 提取完成！新增 ${successCount} 个词，跳过 ${dupCount} 个当前本中已收录或导入内容重复的词。`);
         } else {
             showToast(`✨ 提取成功！从图片/笔记中为您制作了 ${successCount} 张新卡片。`);
         }
@@ -3252,15 +3275,14 @@ window.autoLookupWord = async function(isEdit = false) {
     btnSpinner.classList.remove('hidden');
     btnText.innerText = "匹配中...";
 
-    const systemPrompt = `你是一个非常专业且极致克制的日语研究助手。
-任务：接收用户输入的日语词汇，仅仅生成读音平假名，以及带汉字振假名括号的对齐文本。
-注意：不要尝试生成例句、不要生成中文解释。必须返回一个纯净的 JSON 字符串（不要有任何 Markdown \`\`\`json 包裹）。
-要求：
-1. 生成精准的“振假名括号对齐文本” (word_with_bracket) 中括号[ ]里的假名必须只标注在对应的日文汉字上，绝对不能黏连周围的平假名。
-   - 示例: 输入 '日本語'，返回 '日本[にほん]語[ご]'。
-   - 示例: 输入 '食べる'，返回 '食[た]べる' (假名 'べ' 和 'る' 不能塞进括号中)。
-   - 示例: 输入 '美味しい'，返回 '美[お]味[い]しい'。
-必须严格返回如下 JSON 格式：{"kana": "纯假名", "word_with_bracket": "带括号格式"}`;
+    const systemPrompt = `任务：日语读音与振假名标注。必须返回纯净合法的 JSON 对象，禁止使用 Markdown 包裹。
+格式：{"kana":"完整平假名读音","word_with_bracket":"带注音的原词"}
+规则：
+1. word_with_bracket 必须保留原词所有字符及顺序，只可在汉字后插入[对应平假名]。
+2. 只给汉字标注读音，绝对不能黏连周围的送り仮名（送假名）。
+3. 去掉注音后必须与输入词完全一致，禁止任何纠错、改字、替换或增删。
+4. 读音不确定时不要猜测，word_with_bracket 保持原词，kana 留空字符串。
+示例：食べる→食[た]べる；美味しい→美[お]味[い]しい；打ち付ける→打[う]ち付[つ]ける；日本語→日本[にほん]語[ご]。`;
 
     try {
         let url = "";
@@ -3313,6 +3335,12 @@ window.autoLookupWord = async function(isEdit = false) {
         if (!textJson) throw new Error("AI未能输出合法的回包字段");
 
         const data = JSON.parse(textJson);
+        if (typeof data.word_with_bracket !== 'string' || typeof data.kana !== 'string') {
+            throw new Error("AI返回字段格式不正确，原词和假名均未修改。");
+        }
+        if (getCleanWordText(data.word_with_bracket) !== getCleanWordText(wordVal)) {
+            throw new Error("AI返回的词形与输入不一致，原词和假名均未修改；请重试或手动核对。");
+        }
 
         if (isEdit) {
             document.getElementById('edit-word').value = data.word_with_bracket;
@@ -3320,6 +3348,7 @@ window.autoLookupWord = async function(isEdit = false) {
         } else {
             document.getElementById('input-word').value = data.word_with_bracket;
             document.getElementById('input-kana').value = data.kana;
+            scheduleManualDuplicateCheck();
         }
 
         showToast(`✨ 使用 ${activeProvider === 'gemini' ? 'Gemini' : 'DeepSeek'} 智能适配完成！`);
@@ -3747,6 +3776,69 @@ window.syncFromCloud = async function() {
     }
 }
 
+let manualDuplicateCheckTimer = null;
+function clearManualDuplicateHint() {
+    const hint = document.getElementById('input-word-duplicate-hint');
+    if (!hint) return;
+    const message = document.getElementById('input-word-duplicate-message');
+    if (message) message.textContent = '';
+    hint.title = '';
+    hint.className = 'absolute top-full left-0 right-0 z-10 hidden min-w-0 items-center gap-1.5 overflow-hidden whitespace-nowrap text-ellipsis text-xs leading-4';
+    document.getElementById('input-word-duplicate-x')?.classList.add('hidden');
+    document.getElementById('input-word-duplicate-warning')?.classList.add('hidden');
+}
+
+function showManualDuplicateHint(message, kind) {
+    const hint = document.getElementById('input-word-duplicate-hint');
+    const messageEl = document.getElementById('input-word-duplicate-message');
+    if (!hint || !messageEl) return;
+    messageEl.textContent = message;
+    hint.title = message;
+    hint.className = `absolute top-full left-0 right-0 z-10 flex min-w-0 items-center gap-1.5 overflow-hidden whitespace-nowrap text-ellipsis text-xs leading-4 ${kind === 'same' ? 'text-danger-600 dark:text-danger-400' : 'text-amber-700 dark:text-amber-400'}`;
+    document.getElementById('input-word-duplicate-x')?.classList.toggle('hidden', kind !== 'same');
+    document.getElementById('input-word-duplicate-warning')?.classList.toggle('hidden', kind !== 'other');
+}
+
+function updateManualDuplicateHint() {
+    const input = document.getElementById('input-word');
+    const hint = document.getElementById('input-word-duplicate-hint');
+    if (!input || !hint) return;
+    const word = input.value.trim();
+    if (!word) {
+        clearManualDuplicateHint();
+        return;
+    }
+
+    if (hasDuplicateInNotebook(word, activeNotebook)) {
+        showManualDuplicateHint(`「${activeNotebook}」单词本已收录此词，不能重复添加。`, 'same');
+        return;
+    }
+
+    const duplicateNotebooks = findDuplicateNotebooks(word, activeNotebook);
+    if (duplicateNotebooks.length > 0) {
+        showManualDuplicateHint(`其他单词本「${duplicateNotebooks.join('」「')}」已收录此词；添加时会请你确认。`, 'other');
+        return;
+    }
+
+    clearManualDuplicateHint();
+}
+
+function scheduleManualDuplicateCheck() {
+    window.clearTimeout(manualDuplicateCheckTimer);
+    clearManualDuplicateHint();
+    manualDuplicateCheckTimer = window.setTimeout(updateManualDuplicateHint, 300);
+}
+
+const manualWordInput = document.getElementById('input-word');
+manualWordInput.addEventListener('input', event => {
+    if (!event.isComposing) scheduleManualDuplicateCheck();
+});
+manualWordInput.addEventListener('compositionstart', () => {
+    window.clearTimeout(manualDuplicateCheckTimer);
+    clearManualDuplicateHint();
+});
+manualWordInput.addEventListener('compositionend', scheduleManualDuplicateCheck);
+
 document.getElementById('vocab-form').addEventListener('submit', function(e) {
     e.preventDefault();
 
@@ -3761,16 +3853,15 @@ document.getElementById('vocab-form').addEventListener('submit', function(e) {
         notebooks[activeNotebook] = [];
     }
 
+    const targetNotebook = activeNotebook;
     const cleanInputWord = getCleanWordText(wordVal);
-    const duplicateNotebook = findGlobalDuplicateNotebook(wordVal, null, activeNotebook);
-
-    if (duplicateNotebook) {
-        showToast(duplicateNotebook === activeNotebook
-            ? `当前单词本里已经收录了“${cleanInputWord}”，不能重复添加。`
-            : `“${cleanInputWord}”已经收录在「${duplicateNotebook}」单词本中，不能重复添加。`);
+    if (hasDuplicateInNotebook(wordVal, targetNotebook)) {
+        showToast(`当前单词本里已经收录了“${cleanInputWord}”，不能重复添加。`);
         wordInput.select();
         return;
     }
+
+    const duplicateNotebooks = findDuplicateNotebooks(wordVal, targetNotebook);
 
     const newVocab = {
         id: Date.now().toString(),
@@ -3782,20 +3873,69 @@ document.getElementById('vocab-form').addEventListener('submit', function(e) {
         tags: []
     };
 
-    notebooks[activeNotebook].unshift(newVocab);
-    saveData();
+    const addCard = () => {
+        if (!notebooks[targetNotebook]) notebooks[targetNotebook] = [];
+        notebooks[targetNotebook].unshift(newVocab);
+        saveData();
 
-    if (cardFilter !== "review") {
-        setCardFilter("review");
-    } else {
+        if (cardFilter !== "review") {
+            setCardFilter("review");
+        } else {
+            renderCards();
+        }
+        renderNotebookMenu();
+        e.target.reset();
+        clearManualDuplicateHint();
+        wordInput.focus();
+        showToast("成功添加词卡到当前单词本！");
+    };
+
+    if (duplicateNotebooks.length > 0) {
+        openConfirmModal({
+            title: '发现其他单词本中已有此词',
+            message: `「${duplicateNotebooks.join('」「')}」单词本中已有“${cleanInputWord}”。仍要添加到「${targetNotebook}」吗？`,
+            confirmText: '仍然添加',
+            danger: false,
+            onConfirm: addCard
+        });
+        return;
+    }
+
+    addCard();
+});
+
+const searchScopeToggle = document.getElementById('search-scope-toggle');
+const searchScopeTrack = document.getElementById('search-scope-track');
+const searchScopeKnob = document.getElementById('search-scope-knob');
+function updateSearchScopeControl() {
+    const isGlobal = searchScope === "global";
+    const input = document.getElementById('search-input');
+    if (input) input.placeholder = isGlobal ? "全局搜索所有单词本..." : "搜索当前单词本...";
+    if (searchScopeToggle) {
+        searchScopeToggle.setAttribute('aria-checked', String(isGlobal));
+        searchScopeToggle.setAttribute('aria-label', isGlobal
+            ? "搜索和标签筛选范围：所有单词本。点击切换为当前单词本"
+            : "搜索和标签筛选范围：当前单词本。点击切换为所有单词本");
+        searchScopeToggle.title = isGlobal
+            ? "搜索和标签筛选：所有单词本；点击切换为当前单词本"
+            : "搜索和标签筛选：当前单词本；点击切换为所有单词本";
+    }
+    if (searchScopeKnob) searchScopeKnob.classList.toggle('translate-x-3', isGlobal);
+    if (searchScopeTrack) {
+        searchScopeTrack.classList.toggle('bg-stone-300', !isGlobal);
+        searchScopeTrack.classList.toggle('dark:bg-stone-600', !isGlobal);
+        searchScopeTrack.classList.toggle('bg-emerald-700', isGlobal);
+        searchScopeTrack.classList.toggle('dark:bg-emerald-500', isGlobal);
+    }
+}
+updateSearchScopeControl();
+searchScopeToggle?.addEventListener('click', () => {
+    searchScope = searchScope === "current" ? "global" : "current";
+    updateSearchScopeControl();
+    if (document.getElementById('search-input').value.trim() || activeTagFilters.length > 0) {
+        resetFlippedCards();
         renderCards();
     }
-    renderNotebookMenu();
-
-    e.target.reset();
-    wordInput.focus();
-
-    showToast("成功添加词卡到当前单词本！");
 });
 
 document.getElementById('search-input').addEventListener('input', function(event) {
@@ -3826,8 +3966,10 @@ let allFlipped = false;
 // 翻面状态（内存中按 cardId 记录）。renderCards 重绘后据此回灌 .card-inner.is-flipped，
 // 使标记已掌握等触发整页重绘的操作不再把已翻面的卡片刷回正面。刷新页面时重置（符合「保持原样」的会话内语义）。
 const flippedCardIds = new Set();
+const expandedCardIds = new Set();
 function resetFlippedCards() {
     flippedCardIds.clear();
+    expandedCardIds.clear();
     allFlipped = false;
     if (flipFab && layoutMode === "grid") flipFab.title = "全卡翻面";
 }
@@ -3854,6 +3996,10 @@ if (flipFab) {
             const anyCollapsed = Array.prototype.some.call(areas, a => a.classList.contains('hidden'));
             // anyCollapsed=true → 全部展开（移除 hidden）；false → 全部收起（加上 hidden）
             areas.forEach(a => a.classList.toggle('hidden', !anyCollapsed));
+            document.querySelectorAll('.card-press[data-card-id]').forEach(card => {
+                if (anyCollapsed) expandedCardIds.add(card.dataset.cardId);
+                else expandedCardIds.delete(card.dataset.cardId);
+            });
             document.querySelectorAll('.arrow-icon').forEach(icon => {
                 icon.classList.toggle('rotate-180', anyCollapsed);
             });
