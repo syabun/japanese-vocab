@@ -33,6 +33,40 @@ body {
     width: 100%;
 }
 
+/* 专注模式：横向吸附卡片，中心卡清晰，两侧只轻微缩小和淡化。 */
+.focus-carousel {
+    display: flex;
+    gap: 0;
+    width: 100%;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scroll-snap-type: x mandatory;
+    scroll-behavior: smooth;
+    scrollbar-width: none;
+    padding: 1.25rem max(1rem, calc((100% - var(--focus-card-width, min(78vw, 420px))) / 2));
+    margin: -1.25rem 0;
+}
+.focus-carousel::-webkit-scrollbar { display: none; }
+.focus-carousel > .perspective {
+    flex: 0 0 var(--focus-card-width, min(78vw, 420px));
+    height: min(62vh, calc(460px * var(--card-scale, 1)));
+    min-height: 340px;
+    scroll-snap-align: center;
+    opacity: .68;
+    transition: opacity .25s ease;
+}
+.focus-carousel > .perspective.is-focused { opacity: 1; }
+.focus-carousel > .perspective .card-inner {
+    scale: .92;
+    transition: transform .5s cubic-bezier(.34, 1.12, .64, 1), scale .25s ease;
+}
+.focus-carousel > .perspective.is-focused .card-inner { scale: 1; }
+@media (prefers-reduced-motion: reduce) {
+    .focus-carousel { scroll-behavior: auto; }
+    .focus-carousel > .perspective,
+    .focus-carousel > .perspective .card-inner { transition: none; }
+}
+
 /* 3b. 列表模式：单列，宽度固定 448px（窗口更窄时自动收到窗口宽）。
    宽度刻意不再跟滑块联动：列表横向本来就受窗口限制，窗口窄时滑块的上半段会完全无效，
    看起来像"框不动、只有按钮在动"。滑块在列表模式下改为控制纵向密度（见下面 .list-row-*）。 */
@@ -383,7 +417,7 @@ rt {
 @media (hover: none), (pointer: coarse) {
     .card-scale-box:active,
     .card-press:active {
-        transform: scale(0.98);
+        transform: scale(0.96);
     }
 }
 

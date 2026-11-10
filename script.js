@@ -1081,18 +1081,17 @@ window.setViewMode = function(mode) {
     layoutMode = mode;
     const gridBtn = document.getElementById('view-grid-btn');
     const listBtn = document.getElementById('view-list-btn');
+    const focusBtn = document.getElementById('view-focus-btn');
     const gridContainer = document.getElementById('cards-grid');
-
-    if (mode === "grid") {
-        gridBtn.className = "px-3.5 py-1.5 whitespace-nowrap w-1/2 sm:w-auto rounded-lg text-xs font-bold transition duration-200 bg-white dark:bg-stone-700 text-emerald-800 dark:text-emerald-400 shadow-sm flex items-center justify-center space-x-1.5";
-        listBtn.className = "px-3.5 py-1.5 whitespace-nowrap w-1/2 sm:w-auto rounded-lg text-xs font-bold transition duration-200 text-stone-500 dark:text-stone-400 hover:text-stone-800 dark:hover:text-stone-200 flex items-center justify-center space-x-1.5";
-        gridContainer.className = "adaptive-grid";
-    } else {
-        gridBtn.className = "px-3.5 py-1.5 whitespace-nowrap w-1/2 sm:w-auto rounded-lg text-xs font-bold transition duration-200 text-stone-500 dark:text-stone-400 hover:text-stone-800 dark:hover:text-stone-200 flex items-center justify-center space-x-1.5";
-        listBtn.className = "px-3.5 py-1.5 whitespace-nowrap w-1/2 sm:w-auto rounded-lg text-xs font-bold transition duration-200 bg-white dark:bg-stone-700 text-emerald-800 dark:text-emerald-400 shadow-sm flex items-center justify-center space-x-1.5";
-        // 列表模式也吃 --card-scale：宽度由「卡片大小」滑块控制（见 style.css 的 .list-grid）
-        gridContainer.className = "list-grid";
-    }
+    const base = "px-3.5 py-1.5 whitespace-nowrap rounded-lg text-xs font-bold transition duration-200 flex items-center justify-center space-x-1.5";
+    const active = " bg-white dark:bg-stone-700 text-emerald-800 dark:text-emerald-400 shadow-sm";
+    const inactive = " text-stone-500 dark:text-stone-400 hover:text-stone-800 dark:hover:text-stone-200";
+    [[gridBtn, "grid"], [listBtn, "list"], [focusBtn, "focus"]].forEach(([btn, key]) => {
+        if (btn) btn.className = base + (mode === key ? active : inactive);
+    });
+    gridContainer.className = mode === "grid" ? "adaptive-grid" : mode === "list" ? "list-grid" : "focus-carousel";
+    const slider = document.getElementById('scale-slider');
+    if (slider && mode === 'focus') window.changeCardScale(slider.value);
     renderCards();
 }
 
@@ -1105,6 +1104,9 @@ window.changeCardScale = function(val) {
     grid.style.setProperty('--font-scale', scale >= 1 ? scale : Math.pow(scale, 0.6));
     grid.style.setProperty('--card-width', (300 * scale) + 'px');
     grid.style.setProperty('--card-height', (380 * scale) + 'px');
+    if (layoutMode === 'focus') {
+        grid.style.setProperty('--focus-card-width', `min(calc(78vw * ${scale}), ${420 * scale}px)`);
+    }
     grid.dataset.compact = scale < 0.9 ? 'true' : 'false';
     document.getElementById('scale-value').innerText = Math.round(scale * 100) + '%';
     // 卡片尺寸变了，可见区域内的卡片需要重新做 fit-to-card 适配（防抖批处理）
@@ -1800,6 +1802,59 @@ function purgeDragArtifacts() {
     document.body.classList.remove('tag-dragging');
 }
 
+let focusIndex = 0;
+function setupFocusCarousel(grid) {
+    const cards = Array.from(grid.querySelectorAll('.perspective'));
+    if (!cards.length) return;
+    focusIndex = Math.max(0, Math.min(focusIndex, cards.length - 1));
+    let scrollTimer;
+    const updateFocus = () => {
+        const liveCards = Array.from(grid.querySelectorAll('.perspective'));
+        if (!liveCards.length) return;
+        const center = grid.getBoundingClientRect().left + grid.clientWidth / 2;
+        let nearest = 0, distance = Infinity;
+        liveCards.forEach((card, index) => {
+            const rect = card.getBoundingClientRect();
+            const d = Math.abs(rect.left + rect.width / 2 - center);
+            if (d < distance) { distance = d; nearest = index; }
+        });
+        focusIndex = nearest;
+        liveCards.forEach((card, i) => card.classList.toggle('is-focused', i === nearest));
+    };
+    if (!grid.dataset.focusHandlersBound) {
+        grid.dataset.focusHandlersBound = 'true';
+        grid.addEventListener('scroll', () => {
+            updateFocus();
+            clearTimeout(scrollTimer);
+            scrollTimer = setTimeout(() => {
+                updateFocus();
+                const last = grid.querySelector('.perspective:last-child');
+                if (last && last.getBoundingClientRect().right < grid.getBoundingClientRect().right + 500) {
+                    const { filteredList } = getDisplayedCards();
+                    if (visibleCardLimit < filteredList.length) window.loadMoreCards(true);
+                }
+            }, 100);
+        }, { passive: true });
+        grid.addEventListener('wheel', event => {
+            if (Math.abs(event.deltaY) > Math.abs(event.deltaX)) {
+                event.preventDefault();
+                grid.scrollBy({ left: event.deltaY > 0 ? 340 : -340, behavior: 'smooth' });
+            }
+        }, { passive: false });
+        grid.addEventListener('keydown', event => {
+            if (event.key === 'ArrowRight' || event.key === 'ArrowLeft') {
+                event.preventDefault();
+                const liveCards = Array.from(grid.querySelectorAll('.perspective'));
+                const next = Math.max(0, Math.min(liveCards.length - 1, focusIndex + (event.key === 'ArrowRight' ? 1 : -1)));
+                liveCards[next].scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+            }
+        });
+    }
+    grid.tabIndex = 0;
+    cards[focusIndex].scrollIntoView({ behavior: 'instant', inline: 'center', block: 'nearest' });
+    updateFocus();
+}
+
 function renderCards() {
     purgeDragArtifacts();
     const grid = document.getElementById('cards-grid');
@@ -1853,7 +1908,9 @@ function renderCards() {
         emptyState.classList.add('hidden');
     }
 
-    if (layoutMode === "grid") {
+    if (layoutMode === "focus") {
+        grid.className = "focus-carousel";
+    } else if (layoutMode === "grid") {
         grid.className = "adaptive-grid" + (dragOn ? " drag-enabled" : "");
     } else {
         grid.className = "list-grid" + (dragOn ? " drag-enabled" : "");
@@ -1873,6 +1930,7 @@ function renderCards() {
 
     grid.innerHTML = visibleCards.map(item => buildCardHtml(item, isGlobalScope)).join('');
     observeCardsForFit();
+    if (layoutMode === "focus") setupFocusCarousel(grid);
 
     updateLoadMoreControl(totalCardCount);
     updateHeaderCount();
@@ -1904,7 +1962,7 @@ function buildCardHtml(item, isGlobalScope) {
             </button>
         `;
 
-        if (layoutMode === "grid") {
+        if (layoutMode === "grid" || layoutMode === "focus") {
             let tagsHtml = '';
             if (item.tags && item.tags.length > 0) {
                 tagsHtml = item.tags.map(tag => `<span class="px-1.5 py-0.5 bg-emerald-800/[0.12] dark:bg-emerald-400/[0.12] text-emerald-800 dark:text-emerald-400 rounded text-[10px] mr-1 font-medium shrink-0">${escapeHtml(tag)}</span>`).join('');
@@ -2102,7 +2160,7 @@ function getFitObserver() {
 // 渲染/追加新卡片后调用：为所有未观察的卡片登记懒适配（进视口才处理，每张卡只测一次状态）
 function observeCardsForFit(container) {
     const scope = container || document.getElementById('cards-grid');
-    if (!scope || layoutMode !== 'grid') return;
+    if (!scope || (layoutMode !== 'grid' && layoutMode !== 'focus')) return;
     const observer = getFitObserver();
     scope.querySelectorAll('.perspective').forEach(card => {
         if (!card.dataset.fitBound) {
@@ -2115,7 +2173,7 @@ function observeCardsForFit(container) {
 // 对当前视口 ±200px 内的卡片立即重适配（滑块变化、字体加载完成后调用）
 function fitCardsInViewport() {
     const grid = document.getElementById('cards-grid');
-    if (!grid || layoutMode !== 'grid') return;
+    if (!grid || (layoutMode !== 'grid' && layoutMode !== 'focus')) return;
     const vh = window.innerHeight;
     const pending = [];
     grid.querySelectorAll('.perspective').forEach(card => {
@@ -2131,7 +2189,7 @@ function scheduleRefit() {
     fitRefitTimer = setTimeout(fitCardsInViewport, 120);
 }
 
-window.loadMoreCards = function() {
+window.loadMoreCards = function(autoAppend = false) {
     const grid = document.getElementById('cards-grid');
     const { filteredList, isGlobalScope } = getDisplayedCards();
     const prevLimit = visibleCardLimit;
@@ -2144,6 +2202,11 @@ window.loadMoreCards = function() {
         }
         grid.insertAdjacentHTML('beforeend', newCards.map(item => buildCardHtml(item, isGlobalScope)).join(''));
         observeCardsForFit();
+        if (layoutMode === 'focus') {
+            const last = grid.querySelector('.perspective:last-child');
+            if (last && !autoAppend) last.scrollIntoView({ behavior: 'smooth', inline: 'end', block: 'nearest' });
+            setupFocusCarousel(grid);
+        }
     }
     updateLoadMoreControl(filteredList.length);
     updateHeaderCount();
@@ -2672,6 +2735,7 @@ window.toggleCardMastered = function(event, cardId, notebookName = activeNoteboo
     // 但状态要先改——否则动画的 230ms 窗口内二次点击会看到 oldStatus 仍为 false，
     // 触发两次定时器把卡片「掌握↔未掌握」来回翻，净效果丢失且声音/浮层重复。
     card.mastered = !card.mastered;
+    if (layoutMode === "focus" && cardFilter === "review" && card.mastered) focusIndex = Math.min(focusIndex, Math.max(0, document.querySelectorAll('#cards-grid > .perspective').length - 2));
     if (card.mastered) card.masteredAt = Date.now(); // 记录掌握时间，用于已掌握视图按时间倒序
     saveData();
 
@@ -3448,6 +3512,33 @@ function stableSerialize(value) {
     return JSON.stringify(value);
 }
 
+async function getGitHubApiError(response, action) {
+    let detail = '';
+    try {
+        const body = await response.json();
+        if (typeof body.message === 'string') detail = body.message;
+        if (Array.isArray(body.errors) && body.errors.length) {
+            const errors = body.errors.map(error => typeof error === 'string' ? error : [error.resource, error.field, error.code].filter(Boolean).join(' ')).filter(Boolean);
+            if (errors.length) detail += `${detail ? '；' : ''}${errors.join('；')}`;
+        }
+    } catch (_) {
+        // GitHub may return an empty or non-JSON error response.
+    }
+    const statusHint = response.status === 403
+        ? '；请检查 Token 是否有 Gist 写入权限，以及是否触发 API 限流'
+        : response.status === 422
+            ? '；请检查上传内容和 Gist 请求格式'
+            : response.status === 429
+                ? '；请求过于频繁，请稍后重试'
+                : '';
+    return `${action}失败（HTTP ${response.status}${response.statusText ? ` ${response.statusText}` : ''}）${detail ? `：${detail}` : ''}${statusHint}`;
+}
+
+function getNetworkErrorMessage(error) {
+    if (error instanceof TypeError) return '无法连接 GitHub API。请检查网络、代理或浏览器扩展是否拦截了请求（原始错误：' + error.message + '）';
+    return error.message || String(error);
+}
+
 window.checkCloudStatus = async function() {
     const token = document.getElementById('gist-token').value.trim() || localStorage.getItem('gist_token') || '';
     const gistId = document.getElementById('gist-id').value.trim() || localStorage.getItem('gist_id') || '';
@@ -3487,7 +3578,7 @@ window.checkCloudStatus = async function() {
         if (!response.ok) {
             if (response.status === 404) throw new Error('找不到该 Gist，请检查 ID 和访问权限');
             if (response.status === 401) throw new Error('Token 验证失败');
-            throw new Error(`GitHub 请求失败（状态码：${response.status}）`);
+            throw new Error(await getGitHubApiError(response, '读取云端'));
         }
 
         const gist = await response.json();
@@ -3512,7 +3603,7 @@ window.checkCloudStatus = async function() {
         result.textContent = `云端备份 · ${timestamp}\n${books.length} 本单词本 · ${cloudCount} 个单词\n本机：${Object.keys(notebooks).length} 本 · ${localCount} 个单词\n\n${isSame ? '本机与云端内容一致。' : '本机与云端内容不同，请确认要保留哪一边。'}\n此检查只读取数据，不会上传或替换内容。`;
     } catch (err) {
         result.className = 'whitespace-pre-line rounded-xl border border-danger-100 bg-danger-50 px-3.5 py-3 text-xs leading-relaxed text-danger-700 dark:border-danger-800/60 dark:bg-danger-900/20 dark:text-danger-300';
-        result.textContent = `检查失败：${err.message}\n数据没有被修改。`;
+        result.textContent = `检查失败：${getNetworkErrorMessage(err)}\n数据没有被修改。`;
     } finally {
         syncInFlight = false;
         syncButtons.forEach(button => { if (button) button.disabled = false; });
@@ -3591,7 +3682,7 @@ window.syncToCloud = async function() {
 
         // 已绑定 Gist 时，必须成功读取并检查云端后才能继续上传。
         if (gistId) {
-            url = `https://api.github.com/gists/${gistId}`;
+            url = `https://api.github.com/gists/${encodeURIComponent(gistId)}`;
             method = 'PATCH';
 
             const checkRes = await fetch(url, {
@@ -3604,7 +3695,7 @@ window.syncToCloud = async function() {
             if (!checkRes.ok) {
                 if (checkRes.status === 404) throw new Error("找不到该 Gist，请检查 ID；未执行上传");
                 if (checkRes.status === 401) throw new Error("Token 验证失败；未执行上传");
-                throw new Error(`无法检查云端（状态码: ${checkRes.status}），为保护数据已停止上传`);
+                throw new Error(`${await getGitHubApiError(checkRes, '检查云端')}；为保护数据已停止上传`);
             }
             {
                 const cloudData = await checkRes.json();
@@ -3637,6 +3728,7 @@ window.syncToCloud = async function() {
             method: method,
             headers: {
                 'Accept': 'application/vnd.github.v3+json',
+                'Content-Type': 'application/json',
                 'Authorization': `token ${token}`
             },
             body: JSON.stringify(payload)
@@ -3645,7 +3737,7 @@ window.syncToCloud = async function() {
         if (!response.ok) {
             if (response.status === 404) throw new Error("Gist ID 不存在或 Token 无读写权限");
             if (response.status === 401) throw new Error("Token 验证失败，请检查是否填错");
-            throw new Error(`请求失败 (状态码: ${response.status})`);
+            throw new Error(await getGitHubApiError(response, '上传到云端'));
         }
 
         const data = await response.json();
@@ -3664,7 +3756,7 @@ window.syncToCloud = async function() {
         updateSyncStatus(`✅ 上传成功：${getAllCardIds().length} 个单词 · ${new Date(currentTime).toLocaleString()} · Gist ${gistId}`);
         showToast("🎉 本机数据已上传至 GitHub 云端！");
     } catch (err) {
-        updateSyncStatus(`❌ 上传失败: ${err.message}`, true);
+        updateSyncStatus(`❌ 上传失败: ${getNetworkErrorMessage(err)}`, true);
     } finally {
         syncInFlight = false;
         if (btn) {
@@ -3978,7 +4070,7 @@ function resetFlippedCards() {
 const flipFab = document.getElementById('flip-fab');
 if (flipFab) {
     flipFab.addEventListener('click', () => {
-        if (layoutMode === "grid") {
+        if (layoutMode === "grid" || layoutMode === "focus") {
             allFlipped = !allFlipped;
             // 清理时必须覆盖尚未懒加载的卡片；否则它们的 ID 会留在集合中，
             // 后续 loadMoreCards() 重绘时又会以背面状态出现。
