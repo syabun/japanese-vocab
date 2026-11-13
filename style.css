@@ -203,6 +203,13 @@ body.card-dragging * {
     user-select: none;
 }
 
+/* 长按候选阶段就阻止浏览器开始选中文字；只在标签筛选允许拖动卡片时启用。 */
+body.card-drag-pending,
+body.card-drag-pending * {
+    user-select: none;
+    -webkit-user-select: none;
+}
+
 /* 长按起拖的副作用：系统可能弹"选择/拷贝"菜单或开始选文字，把拖拽打断。
    触屏设备上直接禁掉（桌面端保留选中文字的能力，方便复制单词）。 */
 .drag-enabled [data-card-id] {

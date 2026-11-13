@@ -1526,6 +1526,7 @@ function onCardDragPointerDown(e) {
         overEl: null,
         overAfter: null
     };
+    document.body.classList.add('card-drag-pending');
 
     // 这里不能 preventDefault（会连带把 mousedown 掐掉，click 就没了），
     // 所以"拖过之后的那次 click"改由 onCardDragClickGuard 统一掐。
@@ -1680,6 +1681,7 @@ function cancelCardDrag() {
     if (!s) return;
     if (s.timer) clearTimeout(s.timer);
     detachCardDragListeners();
+    document.body.classList.remove('card-drag-pending');
     dragState = null;
 }
 
@@ -1687,6 +1689,7 @@ function onCardDragPointerUp() {
     const s = dragState;
     if (!s) return;
     detachCardDragListeners();
+    document.body.classList.remove('card-drag-pending');
     dragState = null;
     if (!s.started) return; // 没起拖 = 就是一次普通点击，交还给卡片自己处理
     finishCardDrag(s);
@@ -1696,6 +1699,7 @@ function onCardDragPointerCancel() {
     const s = dragState;
     if (!s) return;
     detachCardDragListeners();
+    document.body.classList.remove('card-drag-pending');
     dragState = null;
     if (!s.started) return; // 长按计时被系统打断，什么都没发生
     finishCardDrag(s);      // 已经拖起来了，就按当前落点收尾
@@ -1717,6 +1721,7 @@ function finishCardDrag(s) {
     }
     s.el.classList.remove('drag-placeholder');
     document.body.classList.remove('card-dragging');
+    document.body.classList.remove('card-drag-pending');
 
     const endIndex = Array.prototype.indexOf.call(s.grid.children, s.el);
     if (endIndex === s.startIndex) return; // 原地放下：不写盘，也不打上"手动排过序"的标记
@@ -1836,6 +1841,8 @@ function setupFocusCarousel(grid) {
             }, 100);
         }, { passive: true });
         grid.addEventListener('wheel', event => {
+            // #cards-grid 在视图间复用；专注模式之外放行默认纵向页面滚动。
+            if (layoutMode !== 'focus') return;
             if (Math.abs(event.deltaY) > Math.abs(event.deltaX)) {
                 event.preventDefault();
                 grid.scrollBy({ left: event.deltaY > 0 ? 340 : -340, behavior: 'smooth' });
